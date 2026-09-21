@@ -24,8 +24,13 @@ SEARCH_LIMIT = 1000
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 COMMENT_ASSOCIATIONS = frozenset({"OWNER", "MEMBER"})
 MAX_COMMENTS = 20
+# Comment pages read per issue; the count cap above fills long before.
+MAX_COMMENT_PAGES = 3
+COMMENTS_PER_PAGE = 100
 MAX_COMMENT_BYTES = 64 * 1024
 MAX_BODY_BYTES = 256 * 1024
+# Matches monkey_evidence.MAX_GUIDANCE_BYTES, which verifies agents.md.
+MAX_GUIDANCE_BYTES = 1024 * 1024
 PLACEHOLDER_BOT = "code-monkey[bot]"
 
 SEARCH_FIELDS = (
@@ -48,7 +53,7 @@ def list_repositories(org: str) -> dict[str, dict[str, Any]]:
             "--limit",
             str(SEARCH_LIMIT),
             "--json",
-            "name,isArchived,isTemplate,isFork,defaultBranchRef",
+            "name,isArchived,isTemplate,isFork,isPrivate,visibility,defaultBranchRef",
         ]
     )
     parsed = github.decode_response(raw)
@@ -66,11 +71,17 @@ def list_repositories(org: str) -> dict[str, dict[str, Any]]:
             if isinstance(default, dict)
             else None
         )
+        visibility = data.get("visibility")
         repositories[name.lower()] = {
             "name": name,
             "archived": bool(data.get("isArchived")),
             "template": bool(data.get("isTemplate")),
             "fork": bool(data.get("isFork")),
+            # Private and internal repositories are out of scope (DESIGN
+            # 2, 16): the author job clones without a credential.
+            "public": not data.get("isPrivate")
+            and isinstance(visibility, str)
+            and visibility.upper() == "PUBLIC",
             "default_branch": branch if isinstance(branch, str) and branch else None,
         }
     if len(repositories) >= SEARCH_LIMIT:
@@ -127,6 +138,14 @@ def label_names(raw: Any) -> list[str]:
     return names
 
 
+def truncate_utf8(text: str, limit: int) -> str:
+    """Bound a string by encoded bytes, never splitting a character."""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= limit:
+        return text
+    return encoded[:limit].decode("utf-8", "ignore")
+
+
 def issue_details(repo: str, number: int) -> dict[str, Any]:
     """Read type, priority, body and assignees for one candidate."""
     issue = github.api_object(f"repos/{repo}/issues/{number}")
@@ -153,7 +172,7 @@ def issue_details(repo: str, number: int) -> dict[str, Any]:
                     assignees.append(login)
     return {
         "title": github.require_str(issue, "title", "issue"),
-        "body": (body or "")[:MAX_BODY_BYTES],
+        "body": truncate_utf8(body or "", MAX_BODY_BYTES),
         "labels": label_names(issue.get("labels")),
         "type": type_name,
         "assignees": assignees,
@@ -177,7 +196,14 @@ def read_priority(repo: str, number: int) -> str | None:
 
 
 def prior_attempt(repo: str, branch: str) -> bool:
-    """Whether a pull request from the bot branch exists, open or closed."""
+    """Whether a pull request from the bot branch exists, open or closed.
+
+    ``--head`` matches the branch name alone, and anyone can open a
+    pull request from a fork branch of that name against a public
+    repository. Only a pull request whose head lives in the target
+    repository itself counts; the branch check below covers a branch
+    with no pull request yet.
+    """
     raw = github.run_gh(
         [
             "pr",
@@ -189,16 +215,28 @@ def prior_attempt(repo: str, branch: str) -> bool:
             "--state",
             "all",
             "--limit",
-            "1",
+            "20",
             "--json",
-            "number",
+            "number,isCrossRepository,headRepository",
         ]
     )
     parsed = github.decode_response(raw)
     if not isinstance(parsed, list):
         raise github.GitHubError("expected a pull request array")
-    if cast("list[Any]", parsed):
-        return True
+    for entry in cast("list[Any]", parsed):
+        if not isinstance(entry, dict):
+            raise github.GitHubError("expected pull request objects")
+        data = cast("dict[str, Any]", entry)
+        head = data.get("headRepository")
+        head_name = (
+            cast("dict[str, Any]", head).get("nameWithOwner")
+            if isinstance(head, dict)
+            else None
+        )
+        if data.get("isCrossRepository") is False or (
+            isinstance(head_name, str) and head_name.lower() == repo.lower()
+        ):
+            return True
     try:
         github.api_object(f"repos/{repo}/branches/{branch}")
     except github.GitHubError as exc:
@@ -272,49 +310,73 @@ def branch_head(repo: str, ref: str) -> str:
             inner = tag.get("object")
             if not isinstance(inner, dict):
                 raise github.GitHubError(f"tag {ref!r} has no target")
-            sha = github.require_str(cast("dict[str, Any]", inner), "sha", "tag")
+            obj = cast("dict[str, Any]", inner)
+            sha = github.require_str(obj, "sha", "tag")
+        # A tag may point at a tree, a blob or another tag; provenance
+        # records a commit, so accept nothing else.
+        if obj.get("type") != "commit":
+            raise github.GitHubError(f"ref {ref!r} does not resolve to a commit")
         if not SHA_RE.fullmatch(sha):
             raise github.GitHubError(f"unexpected commit SHA {sha!r}")
         return sha
     raise github.GitHubError(f"no branch or tag named {ref!r} in {repo}")
 
 
-def filtered_comments(repo: str, number: int) -> tuple[list[dict[str, Any]], int]:
-    """Keep comments from owners and members, bounded by count and bytes."""
-    entries = github.api_list(f"repos/{repo}/issues/{number}/comments")
+def filtered_comments(repo: str, number: int) -> tuple[list[dict[str, Any]], int, bool]:
+    """Keep comments from owners and members, bounded by pages, count and bytes.
+
+    Reads at most ``MAX_COMMENT_PAGES`` pages, oldest first, and stops
+    once the count is full. Returns the kept comments, how many it
+    read and dropped, and whether older history went unread.
+    """
     kept: list[dict[str, Any]] = []
     dropped = 0
     total = 0
-    for entry in entries:
-        association = entry.get("author_association")
-        body = entry.get("body")
-        user = entry.get("user")
-        login = (
-            cast("dict[str, Any]", user).get("login")
-            if isinstance(user, dict)
-            else None
+    for page in range(1, MAX_COMMENT_PAGES + 1):
+        entries = github.api_page(
+            f"repos/{repo}/issues/{number}/comments"
+            f"?per_page={COMMENTS_PER_PAGE}&page={page}"
         )
-        if (
-            association not in COMMENT_ASSOCIATIONS
-            or not isinstance(body, str)
-            or not isinstance(login, str)
-        ):
-            dropped += 1
-            continue
-        size = len(body.encode("utf-8"))
-        if len(kept) >= MAX_COMMENTS or total + size > MAX_COMMENT_BYTES:
-            dropped += 1
-            continue
-        total += size
-        kept.append(
-            {
-                "author": login,
-                "association": association,
-                "created_at": entry.get("created_at"),
-                "body": body,
-            }
-        )
-    return kept, dropped
+        for entry in entries:
+            comment = member_comment(entry)
+            size = len(str(comment["body"]).encode("utf-8")) if comment else 0
+            if (
+                comment is None
+                or len(kept) >= MAX_COMMENTS
+                or total + size > MAX_COMMENT_BYTES
+            ):
+                dropped += 1
+                continue
+            total += size
+            kept.append(comment)
+        if len(entries) < COMMENTS_PER_PAGE:
+            return kept, dropped, False
+        if len(kept) >= MAX_COMMENTS:
+            break
+    # A full last page means more history may exist that was not read.
+    return kept, dropped, True
+
+
+def member_comment(entry: dict[str, Any]) -> dict[str, Any] | None:
+    """An owner's or member's comment in packet form, or None."""
+    association = entry.get("author_association")
+    body = entry.get("body")
+    user = entry.get("user")
+    login = (
+        cast("dict[str, Any]", user).get("login") if isinstance(user, dict) else None
+    )
+    if (
+        association not in COMMENT_ASSOCIATIONS
+        or not isinstance(body, str)
+        or not isinstance(login, str)
+    ):
+        return None
+    return {
+        "author": login,
+        "association": association,
+        "created_at": entry.get("created_at"),
+        "body": body,
+    }
 
 
 def fetch_guidance(repository: str, ref: str, path: str) -> tuple[bytes, str]:
@@ -330,6 +392,12 @@ def fetch_guidance(repository: str, ref: str, path: str) -> tuple[bytes, str]:
         raise github.GitHubError(f"guidance content is not decodable: {exc}") from exc
     if not content.strip():
         raise github.GitHubError("guidance file is empty")
+    if len(content) > MAX_GUIDANCE_BYTES:
+        # The evidence verifier refuses a larger agents.md, so fail here
+        # with a clear message instead of in every matrix entry later.
+        raise github.GitHubError(
+            f"guidance file is {len(content)} bytes; the limit is {MAX_GUIDANCE_BYTES}"
+        )
     return content, commit
 
 

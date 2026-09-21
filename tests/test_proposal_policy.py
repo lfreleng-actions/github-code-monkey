@@ -161,6 +161,11 @@ class SplitMessageTest(unittest.TestCase):
         with self.assertRaises(policy.Rejection):
             policy.split_message("Fix: X\nbody right away\n")
 
+    def test_trailer_glued_to_subject_rejected(self) -> None:
+        """A trailer directly under the subject is not a trailer; it is a rejection."""
+        with self.assertRaisesRegex(policy.Rejection, "blank line"):
+            policy.split_message(f"Fix: X\n{SIGN_OFF}\n")
+
     def test_body_line_looking_like_trailer_inside_body(self) -> None:
         """Only the final block counts as trailers; a colon line mid-body stays."""
         headline, body, trailers = policy.split_message(
@@ -205,11 +210,19 @@ class CheckHeadlineTest(unittest.TestCase):
 
     def test_over_limit_fails(self) -> None:
         """A subject over the limit is rejected; at the limit passes."""
-        exact = "Fix: " + "x" * 45
+        exact = "Fix: X" + "x" * 44
         self.assertEqual(len(exact), 50)
         policy.check_headline(exact, 50)
         with self.assertRaisesRegex(policy.Rejection, "exceeds 50"):
             policy.check_headline(exact + "y", 50)
+
+    def test_description_must_be_capitalised(self) -> None:
+        """The org gitlint rule wants a capital after the colon, too."""
+        with self.assertRaisesRegex(policy.Rejection, "capitalised"):
+            policy.check_headline("Fix: lower case description", 50)
+        with self.assertRaisesRegex(policy.Rejection, "capitalised"):
+            policy.check_headline("Fix(scope): lower", 50)
+        policy.check_headline("Fix(scope): Upper", 50)
 
     def test_trailing_punctuation_fails(self) -> None:
         """A subject ending in punctuation is rejected."""
@@ -234,6 +247,30 @@ class CheckBodyTest(unittest.TestCase):
         """A long line carrying a URL passes."""
         policy.check_body(["See https://example.com/" + "a" * 80])
         policy.check_body(["See http://example.com/" + "a" * 80])
+
+
+class LogSafeTest(unittest.TestCase):
+    """``log_safe`` neutralises workflow-command markers and line breaks."""
+
+    def test_markers_and_newlines(self) -> None:
+        """A spoofed annotation flattens to harmless text."""
+        hostile = "fine\n::error::spoofed\r\n##[group]x\n::stop-commands::t"
+        safe = policy.log_safe(hostile)
+        self.assertNotIn("\n", safe)
+        self.assertNotIn("::", safe)
+        self.assertNotIn("##[", safe)
+        self.assertIn("spoofed", safe)
+
+
+class CommentSafeTest(unittest.TestCase):
+    """``comment_safe`` keeps an outcome comment to one quiet line."""
+
+    def test_flattens_and_defuses_mentions(self) -> None:
+        """Newlines collapse and an @-mention no longer pings."""
+        safe = policy.comment_safe("first\n\n## heading\n@alice please")
+        self.assertNotIn("\n", safe)
+        self.assertNotIn("@alice", safe)
+        self.assertIn("alice", safe)
 
 
 class CoauthorForTest(unittest.TestCase):
@@ -276,6 +313,21 @@ class ComposeTrailersTest(unittest.TestCase):
     def test_no_duplicate_coauthor(self) -> None:
         """An existing co-author with the same address is kept, not doubled."""
         existing = "Co-authored-by: Claude Opus <noreply@anthropic.com>"
+        self.assertEqual(
+            policy.compose_trailers([existing], IDENTITY), [existing, SIGN_OFF]
+        )
+
+    def test_similar_address_does_not_suppress_model_trailer(self) -> None:
+        """Only an exact bracketed address counts as the model already present."""
+        lookalike = "Co-authored-by: Someone <xnoreply@anthropic.com>"
+        self.assertEqual(
+            policy.compose_trailers([lookalike], IDENTITY),
+            [lookalike, COAUTHOR, SIGN_OFF],
+        )
+
+    def test_address_match_is_case_insensitive(self) -> None:
+        """Mail addresses compare case-insensitively."""
+        existing = "Co-authored-by: Claude <NoReply@Anthropic.com>"
         self.assertEqual(
             policy.compose_trailers([existing], IDENTITY), [existing, SIGN_OFF]
         )
@@ -356,29 +408,41 @@ class CheckPullRequestTextTest(unittest.TestCase):
                 self.assertRaises(policy.Rejection),
             ):
                 policy.check_pull_request_text(
-                    title, body, issue=7, single_headline=None
+                    title, body, repository="owner/repo", issue=7, single_headline=None
                 )
 
     def test_single_commit_title_must_match(self) -> None:
         """One commit means the title equals its subject, after stripping."""
         title, body = policy.check_pull_request_text(
-            "  Fix: X ", "Closes #7\n\n", issue=7, single_headline="Fix: X"
+            "  Fix: X ",
+            "Closes #7\n\n",
+            repository="owner/repo",
+            issue=7,
+            single_headline="Fix: X",
         )
         self.assertEqual((title, body), ("Fix: X", "Closes #7"))
         with self.assertRaisesRegex(policy.Rejection, "must equal the subject"):
             policy.check_pull_request_text(
-                "Fix: Y", "Closes #7", issue=7, single_headline="Fix: X"
+                "Fix: Y",
+                "Closes #7",
+                repository="owner/repo",
+                issue=7,
+                single_headline="Fix: X",
             )
 
     def test_multi_commit_any_title(self) -> None:
         """Without a single headline the title is free."""
         title, _ = policy.check_pull_request_text(
-            "Anything goes", "Fixes #7", issue=7, single_headline=None
+            "Anything goes",
+            "Fixes #7",
+            repository="owner/repo",
+            issue=7,
+            single_headline=None,
         )
         self.assertEqual(title, "Anything goes")
 
     def test_closing_keywords(self) -> None:
-        """Closes, Fixes and Resolves, any case, with or without repository."""
+        """Closes, Fixes and Resolves, any case, bare or for this repository."""
         for body in (
             "Closes #7",
             "text\nfixes #7\nmore",
@@ -386,7 +450,65 @@ class CheckPullRequestTextTest(unittest.TestCase):
             "Resolves owner.name/re-po#7.",
         ):
             with self.subTest(body=body):
-                policy.check_pull_request_text("T", body, issue=7, single_headline=None)
+                repository = "owner.name/re-po" if "re-po" in body else "owner/repo"
+                policy.check_pull_request_text(
+                    "T", body, repository=repository, issue=7, single_headline=None
+                )
+
+    def test_closing_keyword_inside_code_does_not_count(self) -> None:
+        """A closing line in a fence or code span closes nothing on GitHub."""
+        for body in (
+            "Example:\n\n```text\nCloses #7\n```\n",
+            "Example:\n\n~~~\nCloses #7\n~~~\n",
+            "Write `Closes #7` at the end.",
+            "Unclosed:\n\n```text\nCloses #7\n",
+            "<!-- Closes #7 -->",
+            "```\n    ```\nCloses #7\n",
+            "````\n```\nCloses #7\n",
+            "```\n~~~\nCloses #7\n",
+            "Text\n<!--\nCloses #7\n-->\n",
+            "Text\n<!-- never closed\nCloses #7\n",
+            "````\n```\nCloses #7\n````\n",
+        ):
+            with (
+                self.subTest(body=body),
+                self.assertRaisesRegex(policy.Rejection, "Closes #7"),
+            ):
+                policy.check_pull_request_text(
+                    "T", body, repository="owner/repo", issue=7, single_headline=None
+                )
+        policy.check_pull_request_text(
+            "T",
+            "```text\nexample\n```\n\nCloses #7\n",
+            repository="owner/repo",
+            issue=7,
+            single_headline=None,
+        )
+
+    def test_closing_directive_stays_on_one_line_outside_code(self) -> None:
+        """A keyword split from its reference, or indented as code, closes nothing."""
+        for body in ("Closes\n#7", "    Closes #7", "Closes\t\n#7"):
+            with (
+                self.subTest(body=body),
+                self.assertRaisesRegex(policy.Rejection, "Closes #7"),
+            ):
+                policy.check_pull_request_text(
+                    "T", body, repository="owner/repo", issue=7, single_headline=None
+                )
+        policy.check_pull_request_text(
+            "T", "   Closes #7", repository="owner/repo", issue=7, single_headline=None
+        )
+
+    def test_closing_reference_to_another_repository_rejects(self) -> None:
+        """A qualified reference must name the selected repository."""
+        with self.assertRaisesRegex(policy.Rejection, "Closes #7"):
+            policy.check_pull_request_text(
+                "T",
+                "Closes unrelated/repo#7",
+                repository="owner/repo",
+                issue=7,
+                single_headline=None,
+            )
 
     def test_closing_line_must_start_line(self) -> None:
         """The keyword must open the line and the number must be exact."""
@@ -401,17 +523,70 @@ class CheckPullRequestTextTest(unittest.TestCase):
                 self.subTest(body=body),
                 self.assertRaisesRegex(policy.Rejection, "Closes #7"),
             ):
-                policy.check_pull_request_text("T", body, issue=7, single_headline=None)
+                policy.check_pull_request_text(
+                    "T", body, repository="owner/repo", issue=7, single_headline=None
+                )
 
     def test_title_length(self) -> None:
         """A title over 256 characters is rejected."""
         with self.assertRaisesRegex(policy.Rejection, "exceeds 256"):
             policy.check_pull_request_text(
-                "x" * 257, "Closes #7", issue=7, single_headline=None
+                "x" * 257,
+                "Closes #7",
+                repository="owner/repo",
+                issue=7,
+                single_headline=None,
             )
         policy.check_pull_request_text(
-            "x" * 256, "Closes #7", issue=7, single_headline=None
+            "x" * 256,
+            "Closes #7",
+            repository="owner/repo",
+            issue=7,
+            single_headline=None,
         )
+
+
+class DefuseMentionsTest(unittest.TestCase):
+    """``defuse_mentions`` stops pings and leaves addresses and refs alone."""
+
+    def test_mentions_and_non_mentions(self) -> None:
+        """Users and teams are defused; emails and action refs are not."""
+        zws = "\u200b"
+        self.assertEqual(
+            policy.defuse_mentions("ping @alice and @org/team"),
+            f"ping @{zws}alice and @{zws}org/team",
+        )
+        for text in ("mail a@b.com", "uses actions/checkout@v4", "@ alone"):
+            with self.subTest(text=text):
+                self.assertEqual(policy.defuse_mentions(text), text)
+
+
+class ProvenanceCommandTest(unittest.TestCase):
+    """Agent-written command text stays inside its table cell."""
+
+    def test_command_cannot_escape_the_block(self) -> None:
+        """Newlines flatten and markup cannot close the details block."""
+        block = policy.provenance_block(
+            model="m",
+            run_url="r",
+            issue_url="i",
+            base_sha="a" * 40,
+            commands=[{"command": "ok\n</details>\n| x | y |", "exit_code": 0}],
+        )
+        rows = [line for line in block.splitlines() if "ok" in line]
+        self.assertEqual(len(rows), 1)
+        self.assertNotIn("</details>\n", block.split("</summary>")[1].split("The `")[0])
+        self.assertEqual(block.count("</details>"), 1)
+
+
+class PullRequestBodySizeTest(unittest.TestCase):
+    """``check_pull_request_body_size`` refuses bodies GitHub would reject."""
+
+    def test_limit(self) -> None:
+        """At the limit passes; one over is a rejection."""
+        policy.check_pull_request_body_size("x" * policy.MAX_PR_BODY)
+        with self.assertRaisesRegex(policy.Rejection, "exceeds"):
+            policy.check_pull_request_body_size("x" * (policy.MAX_PR_BODY + 1))
 
 
 class ProvenanceBlockTest(unittest.TestCase):

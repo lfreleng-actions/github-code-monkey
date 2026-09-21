@@ -12,31 +12,14 @@ the publisher acts on. See DESIGN.md sections 8 and 18.3.
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from typing import Any, cast
 
 import monkey_github as github
 import proposal_policy as policy
+from git_bounded import git
 from proposal_model import Check, Context, load_json, read_usage
 from proposal_policy import Identity, PublishError, Rejection
-
-
-def git(workdir: Path, *args: str, binary: bool = False) -> bytes | str:
-    """Run git in the working clone, failing loudly on error."""
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(workdir), *args],
-            capture_output=True,
-            check=False,
-            timeout=300,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise PublishError(f"git {' '.join(args)}: {exc}") from exc
-    if proc.returncode != 0:
-        detail = proc.stderr.decode("utf-8", "replace").strip()
-        raise PublishError(f"git {' '.join(args[:2])} failed: {detail[:500]}")
-    return proc.stdout if binary else proc.stdout.decode("utf-8", "replace")
 
 
 def field_str(data: dict[str, Any], key: str, context: str) -> str:
@@ -92,16 +75,21 @@ def selection_identity(
 
 def read_manifest(path: Path, check: Check) -> dict[str, Any]:
     """Read the untrusted manifest and cross-check it against the selection."""
-    manifest = load_json(path, "manifest")
+    try:
+        manifest = load_json(path, "manifest")
+    except PublishError as exc:
+        # Agent output; malformed is a verdict, not an operational fault.
+        raise Rejection(str(exc)) from exc
     outcome = manifest.get("outcome")
     if outcome not in policy.MANIFEST_OUTCOMES:
         raise Rejection(f"manifest outcome {outcome!r} is not recognised")
     if outcome != "proposed":
         reason = manifest.get("reason")
         check.verdict = str(outcome)
-        check.reasons.append(
-            reason if isinstance(reason, str) and reason else "no reason given"
+        text = (
+            reason if isinstance(reason, str) and reason.strip() else "no reason given"
         )
+        check.reasons.append(text[: policy.MAX_REASON])
         return manifest
     expected = {
         "repository": check.repository,
@@ -165,6 +153,13 @@ def import_bundle(clone: Path, bundle: Path, branch: str, base_sha: str) -> list
     if f"refs/heads/{branch}" not in heads:
         raise Rejection(f"bundle does not carry refs/heads/{branch}")
     git(clone, "fetch", "-q", str(bundle), f"refs/heads/{branch}:refs/bundle/head")
+    # Count before listing, so a bundle of a million commits is
+    # refused without the publisher holding their names.
+    count = int(
+        str(git(clone, "rev-list", "--count", f"{base_sha}..refs/bundle/head")).strip()
+    )
+    if count > policy.MAX_COMMITS:
+        raise Rejection(f"{count} commits exceed the limit of {policy.MAX_COMMITS}")
     listing = str(
         git(
             clone, "rev-list", "--reverse", "--parents", f"{base_sha}..refs/bundle/head"
@@ -201,9 +196,12 @@ def gitlint_text(clone: Path, base_sha: str) -> str | None:
 
 
 def is_binary(clone: Path, blob: str) -> bool:
-    """Treat a NUL byte in the first 8 KiB as binary."""
-    content = cast("bytes", git(clone, "cat-file", "blob", blob, binary=True))
-    return b"\0" in content[:8192]
+    """Treat a NUL byte in the first 8 KiB as binary; read no further."""
+    content = cast(
+        "bytes",
+        git(clone, "cat-file", "blob", blob, binary=True, limit=8192, head=True),
+    )
+    return b"\0" in content
 
 
 def walk_diff(clone: Path, parent: str, sha: str, check: Check) -> dict[str, Any]:
@@ -227,13 +225,16 @@ def walk_diff(clone: Path, parent: str, sha: str, check: Check) -> dict[str, Any
     deletions: list[str] = []
     index = 0
     while index < len(fields) and fields[index]:
-        meta = fields[index].decode("utf-8", "replace")
-        path = (
-            fields[index + 1].decode("utf-8", "replace")
-            if index + 1 < len(fields)
-            else ""
-        )
+        meta = fields[index].decode("ascii", "replace")
+        raw_path = fields[index + 1] if index + 1 < len(fields) else b""
         index += 2
+        try:
+            # Git allows any bytes in a path; the API takes UTF-8 text.
+            # A path that does not round-trip would be checked under
+            # one name and created under another, so refuse it.
+            path = raw_path.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise Rejection(f"path {raw_path!r} is not valid UTF-8") from exc
         parts = meta.lstrip(":").split()
         if len(parts) != 5:
             raise PublishError(f"unexpected diff-tree entry {meta!r}")
@@ -242,22 +243,36 @@ def walk_diff(clone: Path, parent: str, sha: str, check: Check) -> dict[str, Any
             raise Rejection(f"unsafe path {path!r}")
         if policy.protected(path):
             raise Rejection(f"{path} is protected and cannot change")
+        if path.startswith(policy.WORKFLOW_PREFIX):
+            # Deleting a workflow file needs the grant as much as
+            # writing one; flag before the deletion branch returns.
+            check.needs_workflows = True
         if status.startswith("D"):
             deletions.append(path)
             continue
         policy.check_change_mode(path, status, old_mode, new_mode)
         size = int(str(git(clone, "cat-file", "-s", new_blob)).strip())
-        if is_binary(clone, new_blob) and size > policy.MAX_BINARY_BYTES:
+        # Sizes come from the object header; content is read only once
+        # the size is known to be within the cap.
+        if size > policy.MAX_ADDED_BYTES:
+            raise Rejection(f"{path}: {size} bytes exceed {policy.MAX_ADDED_BYTES}")
+        if size > policy.MAX_BINARY_BYTES and is_binary(clone, new_blob):
             raise Rejection(
                 f"{path}: binary file exceeds {policy.MAX_BINARY_BYTES} bytes"
             )
         check.added_bytes += size
         if check.added_bytes > policy.MAX_ADDED_BYTES:
             raise Rejection(f"total added bytes exceed {policy.MAX_ADDED_BYTES}")
-        if path.startswith(policy.WORKFLOW_PREFIX):
-            check.needs_workflows = True
         additions.append({"path": path, "blob": new_blob, "size": size})
-    check.files_changed += len(additions) + len(deletions)
+    changed = len(additions) + len(deletions)
+    if changed == 0:
+        raise Rejection(f"{sha[:7]} changes no files; the API cannot replay it")
+    if changed > policy.MAX_FILES_PER_COMMIT:
+        raise Rejection(
+            f"{sha[:7]} changes {changed} files; the API replays at most "
+            f"{policy.MAX_FILES_PER_COMMIT} per commit"
+        )
+    check.files_changed += changed
     return {"additions": additions, "deletions": deletions}
 
 
@@ -272,14 +287,35 @@ def verify_proposal(check: Check, manifest: dict[str, Any], context: Context) ->
     parent = check.base_sha
     for sha in commits:
         diff = walk_diff(clone, parent, sha, check)
-        message = str(git(clone, "log", "-1", "--format=%B", sha))
+        raw = cast(
+            "bytes",
+            git(
+                clone,
+                "log",
+                "-1",
+                "--format=%B",
+                sha,
+                binary=True,
+                limit=policy.MAX_MESSAGE_BYTES,
+            ),
+        )
+        try:
+            # The API takes text; a message that does not round-trip
+            # would be checked as one message and published as another.
+            message = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise Rejection(f"{sha[:7]}: commit message is not valid UTF-8") from exc
         headline, body = policy.compose_message(message, context.identity, limit)
-        check.commits.append({"sha": sha, "headline": headline, "body": body, **diff})
+        tree = str(git(clone, "rev-parse", f"{sha}^{{tree}}")).strip()
+        check.commits.append(
+            {"sha": sha, "tree": tree, "headline": headline, "body": body, **diff}
+        )
         parent = sha
     single = check.commits[0]["headline"] if len(check.commits) == 1 else None
     title, body = policy.check_pull_request_text(
         manifest.get("pr_title"),
         manifest.get("pr_body"),
+        repository=check.repository,
         issue=check.issue,
         single_headline=single,
     )
@@ -291,7 +327,10 @@ def verify_proposal(check: Check, manifest: dict[str, Any], context: Context) ->
         base_sha=check.base_sha,
         commands=check.commands,
     )
-    check.pr_body = body + "\n" + provenance
+    # The body is agent output: defuse mentions before a human has
+    # read it, as the issue comments already do.
+    check.pr_body = policy.defuse_mentions(body) + "\n" + provenance
+    policy.check_pull_request_body_size(check.pr_body)
 
 
 def run_check(
@@ -315,6 +354,7 @@ def run_check(
         issue_url=str(entry["url"]),
     )
     check = Check.from_entry(key, entry)
+    check.bot_login = context.identity.bot_login
     read_usage(proposal_dir / "usage.json", check)
     try:
         manifest = read_manifest(proposal_dir / "manifest.json", check)

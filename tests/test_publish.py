@@ -1157,7 +1157,6 @@ class RunReportTest(NoNetworkCase):
         )
         self.assertEqual(rows[2].count(" | "), 4, rows[2])
 
-    @unittest.expectedFailure
     def test_malformed_note_fields_do_not_abort_the_report(self) -> None:
         """Non-list reasons or warnings still yield one row per result."""
         results = self.root / "results"

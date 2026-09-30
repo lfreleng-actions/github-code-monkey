@@ -25,6 +25,15 @@ def cell(value: Any, limit: int = 300) -> str:
     return policy.log_safe(str(value))[:limit].replace("|", "\\|")
 
 
+def notes_of(value: Any) -> list[str]:
+    """A result's reasons or warnings as text, whatever shape they arrived in."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in cast("list[Any]", value)]
+    return [str(value)]
+
+
 def report_row(item: dict[str, Any]) -> str:
     """One table row for a result."""
     verdict = str(item.get("verdict"))
@@ -32,8 +41,7 @@ def report_row(item: dict[str, Any]) -> str:
     output = item.get("pull_request_url") or item.get("branch_url") or "—"
     if item.get("dry_run") and verdict == "proposed":
         output = "dry run"
-    notes = [str(r) for r in cast("list[Any]", item.get("reasons") or [])]
-    notes += [str(w) for w in cast("list[Any]", item.get("warnings") or [])]
+    notes = notes_of(item.get("reasons")) + notes_of(item.get("warnings"))
     # Choose the text first, then make it one cell: the title and the
     # reasons alike descend from agent output.
     text = "; ".join(notes) or str(item.get("pr_title") or "")

@@ -481,6 +481,36 @@ class CheckPullRequestTextTest(unittest.TestCase):
                     "T", body, repository=repository, issue=7, single_headline=None
                 )
 
+    @unittest.expectedFailure
+    def test_closing_keyword_in_a_container_fence_does_not_count(self) -> None:
+        """A fence inside a list item or quote is code on GitHub too."""
+        for body in (
+            "Intro\n\n- ```text\n  Closes #7\n  ```\n",
+            "1. ~~~\n   Closes #7\n   ~~~\n",
+            "- item\n\n  ```\n  Closes #7\n  ```\n",
+        ):
+            with (
+                self.subTest(body=body),
+                self.assertRaisesRegex(policy.Rejection, "Closes #7"),
+            ):
+                policy.check_pull_request_text(
+                    "T", body, repository="owner/repo", issue=7, single_headline=None
+                )
+        policy.check_pull_request_text(
+            "T",
+            "- ```text\n  example\n  ```\n\nCloses #7\n",
+            repository="owner/repo",
+            issue=7,
+            single_headline=None,
+        )
+
+    def test_container_prefixes_scan_in_linear_time(self) -> None:
+        """Long runs of list and quote markers cannot stall the fence scan."""
+        hostile = ("- " * 20_000 + "x\n") + ("> " * 20_000 + "x\n")
+        started = time.monotonic()
+        policy.strip_code(hostile)
+        self.assertLess(time.monotonic() - started, 2)
+
     def test_closing_keyword_inside_code_does_not_count(self) -> None:
         """A closing line in a fence or code span closes nothing on GitHub."""
         for body in (

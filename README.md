@@ -79,6 +79,6 @@ fine-grained PAT carrying Copilot Requests and no repository grants.
 
 ```bash
 uv run python -B -m unittest discover -s tests -v
-prek run --all-files
+prek run --files <changed files>
 aislop ci
 ```

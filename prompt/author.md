@@ -93,7 +93,7 @@ part and note it in your manifest reason.
   "pr_body": "<markdown; see below>",
   "commands": [
     {"command": "uv run pytest", "exit_code": 0},
-    {"command": "prek run --all-files", "exit_code": 0}
+    {"command": "prek run --files README.md", "exit_code": 0}
   ]
 }
 ```

@@ -260,7 +260,6 @@ def compose_message(message: str, identity: Identity, limit: int) -> tuple[str, 
 
 FENCE_OPEN_RE = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})")
 FENCE_CLOSE_RE = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})[ \t]*$")
-CODE_SPAN_RE = re.compile(r"(`+)(?:(?!\1).)+?\1", re.S)
 
 
 HTML_COMMENT_RE = re.compile(r"<!--.*?(?:-->|\Z)", re.S)
@@ -292,7 +291,48 @@ def strip_code(markdown: str) -> str:
             fence = opener.group(1)
             continue
         kept.append(line)
-    return CODE_SPAN_RE.sub("", "\n".join(kept))
+    return strip_code_spans("\n".join(kept))
+
+
+def strip_code_spans(text: str) -> str:
+    """Remove inline code spans in one linear pass.
+
+    A span opens with a run of N backticks and closes at the next run
+    of exactly N; an opener with no closer is literal text. Run lengths
+    are indexed once, so each closer is found without rescanning, and
+    no input can make this slower than linear.
+    """
+    runs: list[tuple[int, int]] = []
+    i = 0
+    while i < len(text):
+        if text[i] == "`":
+            start = i
+            while i < len(text) and text[i] == "`":
+                i += 1
+            runs.append((start, i - start))
+        else:
+            i += 1
+    # Later runs of each length, nearest first, found by popping.
+    pending: dict[int, list[int]] = {}
+    for index in range(len(runs) - 1, -1, -1):
+        pending.setdefault(runs[index][1], []).append(index)
+    out: list[str] = []
+    position = 0
+    index = 0
+    while index < len(runs):
+        start, length = runs[index]
+        later = pending[length]
+        while later and later[-1] <= index:
+            later.pop()
+        if not later:
+            index += 1
+            continue
+        closer = later.pop()
+        out.append(text[position:start])
+        position = runs[closer][0] + length
+        index = closer + 1
+    out.append(text[position:])
+    return "".join(out)
 
 
 def check_pull_request_text(
@@ -318,6 +358,8 @@ def check_pull_request_text(
         raise Rejection("single-commit pull request title must equal the subject")
     if len(title) > MAX_PR_TITLE:
         raise Rejection(f"pull request title exceeds {MAX_PR_TITLE} characters")
+    # Size first: nothing over GitHub's limit is worth scanning.
+    check_pull_request_body_size(body)
     pattern = CLOSES_TEMPLATE.format(repository=re.escape(repository), number=issue)
     if not re.search(pattern, strip_code(body)):
         raise Rejection(f"pull request body lacks a 'Closes #{issue}' line")

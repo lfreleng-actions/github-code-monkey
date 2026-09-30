@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import sys
+import time
 import unittest
 from importlib import import_module
 from pathlib import Path
@@ -544,6 +545,29 @@ class CheckPullRequestTextTest(unittest.TestCase):
             issue=7,
             single_headline=None,
         )
+
+
+class StripCodeSpansTest(unittest.TestCase):
+    """``strip_code_spans`` follows CommonMark runs in linear time."""
+
+    def test_span_rules(self) -> None:
+        """Equal-length runs pair; an unmatched run stays literal."""
+        cases = {
+            "a `code` b": "a  b",
+            "a ``x ` y`` b": "a  b",
+            "lone ` tick": "lone ` tick",
+            "a `one` ``two`` c": "a   c",
+            "x `` y ` z": "x `` y ` z",
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(policy.strip_code_spans(text), expected)
+
+    def test_hostile_run_is_linear(self) -> None:
+        """A long run of backticks is quick, where a regex backtracked for seconds."""
+        started = time.perf_counter()
+        policy.strip_code("x " + "`" * 50_000)
+        self.assertLess(time.perf_counter() - started, 1.0)
 
 
 class DefuseMentionsTest(unittest.TestCase):

@@ -1157,6 +1157,31 @@ class RunReportTest(NoNetworkCase):
         )
         self.assertEqual(rows[2].count(" | "), 4, rows[2])
 
+    @unittest.expectedFailure
+    def test_malformed_note_fields_do_not_abort_the_report(self) -> None:
+        """Non-list reasons or warnings still yield one row per result."""
+        results = self.root / "results"
+        for name, overrides in (
+            ("a", {"reasons": 5, "warnings": ["w"]}),
+            ("b", {"key": "repo-8", "issue": 8, "warnings": True}),
+        ):
+            (results / name).mkdir(parents=True)
+            (results / name / "result.json").write_text(
+                json.dumps(result_json(**overrides)), encoding="utf-8"
+            )
+        md = self.root / "report.md"
+        reporting.run_report(
+            argparse.Namespace(
+                results=results, output_md=md, output_json=self.root / "r.json"
+            )
+        )
+        rows = [
+            line
+            for line in md.read_text(encoding="utf-8").splitlines()
+            if line.startswith("| ") and "#" in line
+        ]
+        self.assertEqual(len(rows), 2, rows)
+
     def test_report(self) -> None:
         """One row per result, an unreadable row and correct totals."""
         results = self.root / "results"

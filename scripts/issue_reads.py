@@ -267,7 +267,7 @@ def has_open_linked_pr(repo: str, number: int) -> bool:
     """Whether an open pull request is linked to close the issue."""
     owner, _, name = repo.partition("/")
     data = github.graphql(
-        LINKED_QUERY, {"owner": owner, "name": name, "number": number}
+        LINKED_QUERY, {"owner": owner, "name": name, "number": number}, read=True
     )
     repository = data.get("repository")
     issue = (

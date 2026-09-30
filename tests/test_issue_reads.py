@@ -340,7 +340,6 @@ class HasOpenLinkedPrTest(ReadsCase):
                 gql.call_args.args[1], {"owner": "org", "name": "repo", "number": 9}
             )
 
-    @unittest.expectedFailure
     def test_query_is_marked_repeatable(self) -> None:
         """The read-only query opts in to transient retries."""
         with patch.object(github, "graphql", return_value=self.reply(1)) as gql:
@@ -853,7 +852,6 @@ class RunGhRetryTest(unittest.TestCase):
                 github.run_gh(args)
             self.assertEqual(once.call_count, 1)
 
-    @unittest.expectedFailure
     def test_graphql_query_retries_when_marked_read(self) -> None:
         """A caller-declared read query retries a 502; the default does not."""
         error = github.GitHubError("gh: Server Error (HTTP 502)")

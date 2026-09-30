@@ -74,16 +74,21 @@ def run_once(args: list[str], input: str | None) -> str:
     return proc.stdout
 
 
-def run_gh(args: list[str], *, input: str | None = None) -> str:
+def run_gh(
+    args: list[str], *, input: str | None = None, read: bool | None = None
+) -> str:
     """Run gh with a pinned REST API version, returning stdout or raising.
 
     Reads retry a transient 5xx or timeout with a short backoff: the
     selection makes hundreds of reads, and one 502 should not cost the
     day's run. Writes run once; a repeated write is not harmless.
+    ``read`` overrides the guess from the arguments, for a GraphQL
+    query the caller knows to be read-only.
     """
     if args[:1] == ["api"] and args[1:2] != ["graphql"]:
         args = [*args, "--header", f"X-GitHub-Api-Version: {API_VERSION}"]
-    attempts = READ_ATTEMPTS if is_read(args) else 1
+    repeatable = is_read(args) if read is None else read
+    attempts = READ_ATTEMPTS if repeatable else 1
     for attempt in range(1, attempts + 1):
         try:
             return run_once(args, input)
@@ -153,16 +158,21 @@ def api_write(method: str, endpoint: str, payload: dict[str, Any]) -> dict[str, 
     return cast("dict[str, Any]", parsed)
 
 
-def graphql(query: str, variables: dict[str, Any]) -> dict[str, Any]:
+def graphql(
+    query: str, variables: dict[str, Any], *, read: bool = False
+) -> dict[str, Any]:
     """Run one GraphQL operation, surfacing any error entry as a failure.
 
     gh exits non-zero when the response carries ``errors``, and the
     message lands on stderr; a partial ``data`` payload is never
-    returned to the caller as if it were complete.
+    returned to the caller as if it were complete. Operations run once
+    unless the caller passes ``read=True`` for a query with no side
+    effects, which then retries transient failures like a REST read.
     """
     raw = run_gh(
         ["api", "graphql", "--input", "-"],
         input=json.dumps({"query": query, "variables": variables}),
+        read=read,
     )
     parsed = decode_response(raw)
     if not isinstance(parsed, dict):

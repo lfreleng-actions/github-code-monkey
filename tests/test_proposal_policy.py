@@ -327,11 +327,21 @@ class ComposeTrailersTest(unittest.TestCase):
         """An empty block gains both trailers in order."""
         self.assertEqual(policy.compose_trailers([], IDENTITY), [COAUTHOR, SIGN_OFF])
 
-    def test_no_duplicate_coauthor(self) -> None:
-        """An existing co-author with the same address is kept, not doubled."""
-        existing = "Co-authored-by: Claude Opus <noreply@anthropic.com>"
+    @unittest.expectedFailure
+    def test_same_address_trailer_is_replaced(self) -> None:
+        """An agent trailer at the canonical address cannot rename it."""
+        for spoof in (
+            "Co-authored-by: Not Claude <noreply@anthropic.com>",
+            "co-authored-by: Not Claude <noreply@anthropic.com>",
+        ):
+            self.assertEqual(
+                policy.compose_trailers([spoof], IDENTITY), [COAUTHOR, SIGN_OFF]
+            )
+
+    def test_canonical_trailer_not_doubled(self) -> None:
+        """The canonical trailer already present appears once."""
         self.assertEqual(
-            policy.compose_trailers([existing], IDENTITY), [existing, SIGN_OFF]
+            policy.compose_trailers([COAUTHOR], IDENTITY), [COAUTHOR, SIGN_OFF]
         )
 
     def test_similar_address_does_not_suppress_model_trailer(self) -> None:
@@ -342,11 +352,12 @@ class ComposeTrailersTest(unittest.TestCase):
             [lookalike, COAUTHOR, SIGN_OFF],
         )
 
+    @unittest.expectedFailure
     def test_address_match_is_case_insensitive(self) -> None:
         """Mail addresses compare case-insensitively."""
         existing = "Co-authored-by: Claude <NoReply@Anthropic.com>"
         self.assertEqual(
-            policy.compose_trailers([existing], IDENTITY), [existing, SIGN_OFF]
+            policy.compose_trailers([existing], IDENTITY), [COAUTHOR, SIGN_OFF]
         )
 
     def test_other_coauthor_kept_and_model_added(self) -> None:

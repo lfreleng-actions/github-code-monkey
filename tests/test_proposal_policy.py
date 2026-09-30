@@ -482,7 +482,6 @@ class CheckPullRequestTextTest(unittest.TestCase):
                     "T", body, repository=repository, issue=7, single_headline=None
                 )
 
-    @unittest.expectedFailure
     def test_closing_keyword_in_a_container_fence_does_not_count(self) -> None:
         """A fence inside a list item or quote is code on GitHub too."""
         for body in (

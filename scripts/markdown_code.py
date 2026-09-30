@@ -13,37 +13,65 @@ from __future__ import annotations
 
 import re
 
-FENCE_OPEN_RE = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})")
-FENCE_CLOSE_RE = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})[ \t]*$")
+# A fence may sit inside list items and block quotes: the container
+# markers come first (group 1), then the fence's own indent. Each
+# repetition must consume a marker, so the scan stays linear.
+FENCE_OPEN_RE = re.compile(r"^((?:[ ]*(?:[-+*]|\d{1,9}[.)]|>))*)([ ]*)(`{3,}|~{3,})")
+FENCE_CLOSE_RE = re.compile(r"^([ >]*)(`{3,}|~{3,})[ \t]*$")
 
 
 HTML_COMMENT_RE = re.compile(r"<!--.*?(?:-->|\Z)", re.S)
 
 
+def fence_opener(line: str) -> tuple[str, int, int] | None:
+    """The fence run, content column and quote depth a line opens, if any."""
+    found = FENCE_OPEN_RE.match(line)
+    if not found:
+        return None
+    container, indent, fence = found.groups()
+    if not container and len(indent) > 3:
+        return None  # four spaces at top level make indented code
+    column = len(container) + len(indent) if container else 0
+    return fence, column, container.count(">")
+
+
+def closes_fence(line: str, fence: str, column: int, quotes: int) -> bool:
+    """Whether ``line`` closes the fence ``fence_opener`` described.
+
+    The closer uses the opener's character, is at least as long, has
+    the same quote depth, and sits at the content column or up to
+    three spaces deeper. Anything else keeps the fence open, which
+    hides more text rather than less.
+    """
+    found = FENCE_CLOSE_RE.match(line)
+    if not found:
+        return False
+    prefix, run = found.groups()
+    return (
+        run[0] == fence[0]
+        and len(run) >= len(fence)
+        and prefix.count(">") == quotes
+        and column <= len(prefix) <= column + 3
+    )
+
+
 def strip_code(markdown: str) -> str:
     """Drop text where GitHub ignores closing keywords.
 
-    That is HTML comments, fenced blocks and code spans. An unclosed
-    comment or fence hides everything after it, so that tail goes too.
+    That is HTML comments, fenced blocks (at top level or inside list
+    items and quotes) and code spans. An unclosed comment or fence
+    hides everything after it, so that tail goes too.
     """
     markdown = HTML_COMMENT_RE.sub("", markdown)
     kept: list[str] = []
-    fence = ""
+    fence: tuple[str, int, int] | None = None
     for line in markdown.split("\n"):
-        opener = FENCE_OPEN_RE.match(line)
         if fence:
-            # A closer is indented at most three spaces, uses the
-            # opener's character, and is at least as long.
-            closer = FENCE_CLOSE_RE.match(line)
-            if (
-                closer
-                and closer.group(1)[0] == fence[0]
-                and len(closer.group(1)) >= len(fence)
-            ):
-                fence = ""
+            if closes_fence(line, *fence):
+                fence = None
             continue
-        if opener:
-            fence = opener.group(1)
+        fence = fence_opener(line)
+        if fence:
             continue
         kept.append(line)
     return strip_code_spans("\n".join(kept))

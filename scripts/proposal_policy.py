@@ -236,7 +236,7 @@ def trailer_address(line: str) -> str | None:
 
 
 def compose_trailers(trailers: list[str], identity: Identity) -> list[str]:
-    """Ensure the model's co-author and the bot's sign-off close the block."""
+    """Ensure the assistant's co-author and the bot's sign-off close the block."""
     kept = [line for line in trailers if line.strip() != identity.sign_off]
     address = trailer_address(identity.coauthor)
     present = any(

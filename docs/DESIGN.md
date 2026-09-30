@@ -244,7 +244,8 @@ Consequences the implementation has to handle:
 
 - **Message composition.** The publisher takes the subject and body
   from the agent's commit, appends the `Co-authored-by` trailer for
-  the **model** that ran (§10.3) if absent, then
+  the **assistant**, Copilot, whichever model served it (§10.3) if
+  absent, then
   `Signed-off-by: <bot login>[bot] <id+login[bot]@users.noreply.github.com>`.
   It rejects a subject over the repository's `.gitlint` limit or
   lacking a capitalised Conventional Commit type.
@@ -495,7 +496,7 @@ The workflow facts the prompt adds:
 
 1. *Signing.* The agent commits with `git commit -s` and no `-S`: the
    runner holds no signing key, and the publisher's replay signs the
-   commits and appends the model's co-author and the bot's sign-off
+   commits and appends the Copilot co-author and the bot's sign-off
    (§5).
 2. *Replay limits.* No executable bits, symlinks or mode changes; at
    most five commits and 100 file changes per commit; under 4 MiB in
@@ -807,23 +808,26 @@ a caller of the reusable workflow may name them directly.
 
 <!-- markdownlint-disable MD013 -->
 
-| Display name | `--model` | `Co-authored-by` |
-| ------------ | --------- | ---------------- |
-| Claude Opus 5.5 (default) | `claude-opus-5.5` | `Claude <noreply@anthropic.com>` |
-| Claude Fable 5.1 | `claude-fable-5.1` | `Claude <noreply@anthropic.com>` |
-| Claude Sonnet 5.5 | `claude-sonnet-5.5` | `Claude <noreply@anthropic.com>` |
-| GPT-6 Astra | `gpt-6-astra` | `ChatGPT <chatgpt@openai.com>` |
+| Display name | `--model` |
+| ------------ | --------- |
+| Claude Opus 5.5 (default) | `claude-opus-5.5` |
+| Claude Fable 5.1 | `claude-fable-5.1` |
+| Claude Sonnet 5.5 | `claude-sonnet-5.5` |
+| GPT-6 Astra | `gpt-6-astra` |
 
 <!-- markdownlint-enable MD013 -->
 
-The trailer names the model, not the harness, in line with the
-table in §6.3 of the org guidance. The mapping is by identifier
-prefix (`claude-` → Claude, `gpt-` → ChatGPT, `gemini-` → Gemini)
-and lives in `config/coauthors.json` in this repository, where a
-pull request reviews any change to it. An organisation-level
-variable would suit a mapping that more than one workflow shares;
-triage does not commit, so nothing else reads it today. Move it when
-a second consumer appears.
+Every session runs through the Copilot CLI, so every commit carries
+`Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>`
+whichever model served it: §6.3 of the org guidance names the
+assistant used, not the model behind it. The mapping still goes by
+identifier prefix (`claude-`, `gpt-`, `gemini-`), so a model from
+an unlisted family fails the publish rather than commit under an
+identity nobody chose. It lives in `config/coauthors.json` in this
+repository, where a pull request reviews any change to it. An
+organisation-level variable would suit a mapping that more than one
+workflow shares; triage does not commit, so nothing else reads it
+today. Move it when a second consumer appears.
 
 ## 11. Scheduling and Concurrency
 
@@ -977,7 +981,7 @@ The questions the first draft left open, and how they closed:
 | Issue feedback | One comment per outcome via a comment-step token; no labelling, which stays with triage (§8 step 8). GitHub has no permission that stops at comments |
 | Trigger | Offset cron at 09:00 UTC; dispatch from triage is a later option (§11, §16) |
 | DCO | DCOAPP today, a pre-commit lint soon. The trailer matches the API commit's author identity (§5) |
-| Co-author trailer | The model's, by identifier prefix, from `config/coauthors.json` (§10.3) |
+| Co-author trailer | Copilot, the assistant, for every supported model prefix in `config/coauthors.json` (§10.3) |
 | Comments in the packet | `OWNER` and `MEMBER` authors, bounded by count and bytes (§6) |
 | Private repositories | Out of scope for v1 (§2, §16) |
 

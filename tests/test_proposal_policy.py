@@ -310,7 +310,6 @@ class ShippedCoauthorsTest(unittest.TestCase):
 
     COPILOT = "Copilot <223556219+Copilot@users.noreply.github.com>"
 
-    @unittest.expectedFailure
     def test_every_model_is_credited_to_copilot(self) -> None:
         """Organisation guidance: Copilot served by Claude is Copilot."""
         path = Path(__file__).resolve().parents[1] / "config" / "coauthors.json"

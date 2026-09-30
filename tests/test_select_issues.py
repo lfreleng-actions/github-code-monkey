@@ -103,6 +103,7 @@ def fresh_skipped() -> dict[str, int]:
             "repository",
             "label",
             "no_type",
+            "closed",
             "category",
             "assigned",
             "attempted",
@@ -352,6 +353,7 @@ class EnrichTest(NoSubprocessCase):
         """Issues without a Type and, by default, assigned issues are skipped."""
         details: dict[int, dict[str, Any]] = {
             1: {
+                "state": "open",
                 "title": "t",
                 "body": "",
                 "labels": [],
@@ -360,6 +362,7 @@ class EnrichTest(NoSubprocessCase):
                 "priority": None,
             },
             2: {
+                "state": "open",
                 "title": "t",
                 "body": "",
                 "labels": [],
@@ -368,6 +371,7 @@ class EnrichTest(NoSubprocessCase):
                 "priority": "High",
             },
             3: {
+                "state": "open",
                 "title": "t",
                 "body": "",
                 "labels": ["chore"],
@@ -376,6 +380,7 @@ class EnrichTest(NoSubprocessCase):
                 "priority": None,
             },
             4: {
+                "state": "open",
                 "title": "kept",
                 "body": "b",
                 "labels": ["bug"],
@@ -535,6 +540,7 @@ class CategoryFilterTest(NoSubprocessCase):
     ) -> tuple[list[dict[str, Any]], dict[str, int]]:
         """Enrich one candidate carrying the given labels and Type."""
         details: dict[str, Any] = {
+            "state": "open",
             "title": "t",
             "body": "",
             "labels": labels,
@@ -575,6 +581,30 @@ class CategoryFilterTest(NoSubprocessCase):
         self.assertEqual(kept[0]["categories"], ["other"])
         kept, _ = self.run_enrich([], "Task", frozenset({"bugs"}))
         self.assertEqual(kept, [])
+
+
+class ClosedSinceSearchTest(NoSubprocessCase):
+    """An issue closed between the search and the per-issue read is skipped."""
+
+    def test_closed_issue_is_skipped_and_counted(self) -> None:
+        """The fresh read wins over the stale search result."""
+        details: dict[str, Any] = {
+            "state": "closed",
+            "title": "t",
+            "body": "",
+            "labels": ["bug"],
+            "type": "Bug",
+            "assignees": [],
+            "priority": "High",
+        }
+        base = [{k: v for k, v in candidate("r", 1).items() if k not in details}]
+        skipped = fresh_skipped()
+        with patch.object(reads, "issue_details", return_value=details):
+            kept = select.enrich(
+                base, include_assigned=False, enabled=ALL, skipped=skipped
+            )
+        self.assertEqual(kept, [])
+        self.assertEqual(skipped["closed"], 1)
 
 
 class ParseCategoriesTest(unittest.TestCase):
@@ -685,6 +715,7 @@ class MainTest(NoSubprocessCase):
             search_issue("alpha", 3),
         ]
         details: dict[str, Any] = {
+            "state": "open",
             "title": "Title",
             "body": "Body",
             "labels": ["bug"],

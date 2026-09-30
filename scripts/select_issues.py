@@ -172,6 +172,11 @@ def enrich(
     enriched: list[dict[str, Any]] = []
     for candidate in candidates:
         details = reads.issue_details(candidate["repository"], candidate["number"])
+        if details["state"] != "open":
+            # The search result is older than this read; an issue closed
+            # in between is not worth an agent session.
+            skipped["closed"] += 1
+            continue
         if details["type"] is None:
             skipped["no_type"] += 1
             continue
@@ -250,6 +255,7 @@ def build_selection(args: argparse.Namespace) -> tuple[dict[str, Any], bytes]:
             "repository",
             "label",
             "no_type",
+            "closed",
             "category",
             "assigned",
             "attempted",

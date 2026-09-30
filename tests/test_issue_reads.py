@@ -358,6 +358,7 @@ class IssueDetailsTest(ReadsCase):
         """A REST issue object."""
         data: dict[str, Any] = {
             "number": 7,
+            "state": "open",
             "title": "Title",
             "body": "Body",
             "labels": [{"name": "bug"}, "enhancement"],
@@ -366,6 +367,15 @@ class IssueDetailsTest(ReadsCase):
         }
         data.update(overrides)
         return data
+
+    def test_rejects_an_unknown_state(self) -> None:
+        """A state other than open or closed is an API fault."""
+        with (
+            patch.object(github, "api_object", return_value=self.issue(state="odd")),
+            patch.object(github, "api_list", return_value=[]),
+            self.assertRaises(github.GitHubError),
+        ):
+            reads.issue_details("org/repo", 7)
 
     def test_extracts_fields(self) -> None:
         """Type, labels, assignees and priority are extracted and typed."""
@@ -387,6 +397,7 @@ class IssueDetailsTest(ReadsCase):
         self.assertEqual(
             details,
             {
+                "state": "open",
                 "title": "Title",
                 "body": "Body",
                 "labels": ["bug", "enhancement"],

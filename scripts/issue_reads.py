@@ -170,7 +170,11 @@ def issue_details(repo: str, number: int) -> dict[str, Any]:
                 login = cast("dict[str, Any]", person).get("login")
                 if isinstance(login, str):
                     assignees.append(login)
+    state = issue.get("state")
+    if state not in ("open", "closed"):
+        raise github.GitHubError(f"{repo}#{number}: unexpected state {state!r}")
     return {
+        "state": state,
         "title": github.require_str(issue, "title", "issue"),
         "body": truncate_utf8(body or "", MAX_BODY_BYTES),
         "labels": label_names(issue.get("labels")),

@@ -1010,7 +1010,8 @@ cross-checked against the trusted `selection.json`.
     "sha256": "<64 hex>"
   },
   "candidates_seen": 78,
-  "skipped": {"pull_request": 0, "no_type": 3, "assigned": 2, "label": 5,
+  "skipped": {"pull_request": 0, "no_type": 3, "closed": 0,
+              "assigned": 2, "label": 5, "category": 0,
               "attempted": 1, "linked_pr": 0, "repository": 12,
               "one_per_repo": 30, "cap": 15},
   "issues": [

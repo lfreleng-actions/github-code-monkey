@@ -652,11 +652,14 @@ For each selected issue:
    every selected issue reaches the report. A final
    report job gathers every `result.json` by artifact-name pattern
    and renders one table: issue, verdict, output URL, premium
-   requests consumed (from `usage.json`), detail. A retried entry
-   shows its latest attempt's row, but the run's spend total counts
-   each author session once: a rerun author job uploads a new
-   proposal artifact, and the ID of each proposal artifact names
-   the session that produced it.
+   requests consumed (from `usage.json`), detail. A report covers one
+   selection, its namespace: a retried entry shows its latest
+   attempt's row, but the spend total counts each author session
+   once, since a rerun author job uploads a new proposal artifact
+   and the ID of each proposal artifact names the session that
+   produced it. A full rerun selects afresh under a new namespace
+   and gets its own report; the earlier report keeps the earlier
+   sessions' spend, so a run's cost is the sum of its reports.
 
 ## 9. Inputs
 

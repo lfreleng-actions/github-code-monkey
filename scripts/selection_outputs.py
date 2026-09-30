@@ -29,7 +29,9 @@ def summary_markdown(selection: dict[str, Any]) -> str:
         lines.append(f"| {reason} | {count} |")
     lines += ["", "| Issue | Priority | Type | Title |", "| --- | --- | --- | --- |"]
     for issue in cast("list[dict[str, Any]]", selection["issues"]):
-        title = str(issue["title"]).replace("|", "\\|")
+        # Public input: flatten line breaks before escaping, so a title
+        # cannot end the row and inject content into the summary.
+        title = " ".join(str(issue["title"]).split()).replace("|", "\\|")
         lines.append(
             f"| [{issue['repo_name']}#{issue['number']}]({issue['url']}) "
             f"| {issue['priority'] or '—'} | {issue['type']} | {title} |"

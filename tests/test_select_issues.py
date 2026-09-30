@@ -653,6 +653,16 @@ class WriteOutputsTest(unittest.TestCase):
         self.assertIn("| cap | 0 |", summary)
         self.assertNotIn("nothing to work", summary)
 
+    def test_title_cannot_inject_rows(self) -> None:
+        """Line breaks in a public title stay inside its table cell."""
+        issue = self.chosen_issue()
+        issue["title"] = "Real\n| evil | row | x | y |\n## Heading"
+        summary = outputs.summary_markdown(sample_selection([issue]))
+        rows = [line for line in summary.splitlines() if "alpha#3" in line]
+        self.assertEqual(len(rows), 1)
+        self.assertNotIn("\n## Heading", summary)
+        self.assertIn("Real \\| evil \\| row", rows[0])
+
     def test_empty_summary(self) -> None:
         """No issues renders the placeholder row and an em dash for no priority."""
         summary = outputs.summary_markdown(sample_selection([]))

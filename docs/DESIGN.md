@@ -474,32 +474,42 @@ names against `--available-tools` output.
 
 ### 7.3 What the prompt asks for
 
-1. Read the issue, the org guidance, the local `AGENTS.md`, and the
-   repository. Decide whether the issue is tractable: a change the
-   agent can make, test and explain with the tools present.
-2. If not, write `artefacts/manifest.json` with
-   `"outcome": "abstain"` and a reason. Stop.
-3. Otherwise create a branch `code-monkey/issue-<n>` from the
-   checked-out HEAD, make the change, run the repository's tests,
-   `prek run --all-files` and `aislop ci --changes`, and fix what
-   they report. Never `--no-verify`. Workflow files under
-   `.github/workflows/` are in scope: this is a DevOps estate and
-   the bot's App holds the permission to push them.
-4. Where the fix needs an executable bit, a symlink, or anything
-   else §5 cannot carry, leave that step out, finish the rest, and
-   start the pull request body with an `INFO` banner that lists
-   what a human has to do next and why the bot could not.
-5. Commit with `git commit -s` (unsigned; §5 covers signing), one
-   logical change per commit, following §6 of the org guidance for
-   the message. Set the author to the bot identity the packet names.
-6. Write `manifest.json`: `"outcome": "proposed"`, base SHA, the
-   list of commit SHAs, a pull request title (equal to the subject
-   when a single commit), a pull request body in the org's format
-   with a `Closes #<n>` line, and the commands run with their exit
-   codes.
-7. Do not push, do not call `gh`, do not open a pull request, do
-   not touch files outside the checkout, do not delete scratch
-   files; the workflow does that.
+Two sources give the agent its instructions, and they do not
+overlap:
+
+- **The task**, in `prompt/author.md`: which issue, the tractability
+  test and when to abstain, the branch to work on, the manifest to
+  hand back, and the facts about this workflow that no organisation
+  document can know.
+- **How to make a change that can merge**, in the organisation
+  `AGENTS.md` (§7.1) and the target repository's own stub: commit
+  messages, atomic commits, tests, hooks, the `aislop` gate, licence
+  headers. The prompt names these sources and does not restate them,
+  so a change to organisation policy reaches the agent without an
+  edit here. This repository's own `AGENTS.md` records that rule for
+  future contributors to the prompt.
+
+The workflow facts the prompt adds:
+
+1. *Signing.* The agent commits with `git commit -s` and no `-S`: the
+   runner holds no signing key, and the publisher's replay signs the
+   commits and appends the model's co-author and the bot's sign-off
+   (§5).
+2. *Replay limits.* No executable bits, symlinks or mode changes; at
+   most five commits and 100 file changes per commit; under 4 MiB in
+   total; hands off `AGENTS.md`, `LICENSE*`, `REUSE.toml` and
+   `.gitlint`. Workflow files are in scope. Where the fix needs a
+   step the replay cannot take, the agent finishes the rest and
+   opens the pull request body with an `INFO` banner naming the
+   human follow-up.
+3. *Publication.* The agent cannot push; the workflow opens the pull
+   request and runs its review, so the agent skips those steps of
+   the guidance.
+
+The publisher's mechanical checks (§8) do overlap the guidance on
+purpose: they are the gate that decides whether a proposal can merge,
+not a second statement of the policy, and they cover the subset a
+machine can judge.
 
 ### 7.4 Outputs
 
@@ -860,7 +870,8 @@ conflicts while producer artifacts survive.
 .github/workflows/code-monkey.yaml       reusable workflow
 .github/workflows/code-monkey-cron.yaml  schedule and dispatch caller
 .github/workflows/testing.yaml           PR plumbing and offline tests
-prompt/author.md                         agent prompt
+prompt/author.md                         agent task (§7.3)
+AGENTS.md                                organisation stub (§12 there)
 config/excluded-repos.txt                repositories to skip
 config/coauthors.json                    model prefix to trailer (§10.3)
 scripts/select_issues.py                 selection policy

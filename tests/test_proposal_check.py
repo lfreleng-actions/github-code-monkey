@@ -345,6 +345,23 @@ class RunCheckProposedTest(GitCase):
                 check.pr_body.startswith(f"Closes #{ISSUE}\n\n"), check.pr_body
             )
 
+    @unittest.expectedFailure
+    def test_provenance_precedes_the_agent_body(self) -> None:
+        """An unclosed fence or HTML block cannot hide the AI disclosure."""
+        for index, agent_body in enumerate(
+            ("- ```text\n  unclosed fence\n", "<pre>\nunclosed block\n")
+        ):
+            root = self.root / f"case-{index}"
+            root.mkdir()
+            fixture = Fixture(root)
+            fixture.commit("Fix(readme): Correct typo\n\nBody.\n", {"README.md": "x\n"})
+            fixture.bundle()
+            fixture.manifest(pr_body=agent_body)
+            body = fixture.run().pr_body
+            disclosure = body.index("Authored by an AI agent")
+            self.assertLess(body.index("Closes #"), disclosure)
+            self.assertLess(body.index("</details>"), body.index(agent_body.strip()))
+
     def test_workflow_change_flags_permission(self) -> None:
         """Touching a workflow file sets ``needs_workflows``."""
         self.fixture.commit(

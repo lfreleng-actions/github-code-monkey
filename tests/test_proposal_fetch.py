@@ -42,14 +42,21 @@ def understate_sizes(path: Path, name: str, claimed: int) -> None:
     Models a hostile archive whose directory lies about its size; the
     reader must still stop at the cap when it decompresses.
     """
+    rewrite_headers(path, name, {b"PK\x03\x04": 22, b"PK\x01\x02": 24}, "<I", claimed)
+
+
+def rewrite_headers(
+    path: Path, name: str, offsets: dict[bytes, int], fmt: str, value: int
+) -> None:
+    """Overwrite one field of ``name``'s local and central headers."""
     data = bytearray(path.read_bytes())
     encoded = name.encode()
-    for signature, size_offset in ((b"PK\x03\x04", 22), (b"PK\x01\x02", 24)):
+    for signature, field_offset in offsets.items():
         start = 0
         while (index := data.find(signature, start)) != -1:
             name_offset = index + (30 if signature == b"PK\x03\x04" else 46)
             if bytes(data[name_offset : name_offset + len(encoded)]) == encoded:
-                struct.pack_into("<I", data, index + size_offset, claimed)
+                struct.pack_into(fmt, data, index + field_offset, value)
             start = index + 4
     path.write_bytes(bytes(data))
 
@@ -120,6 +127,42 @@ class ExtractTest(unittest.TestCase):
         archive = self.root / "a.zip"
         archive.write_bytes(b"not a zip")
         with self.assertRaisesRegex(fetcher.Refused, "not a valid zip"):
+            fetcher.extract(archive, self.output)
+
+    @unittest.expectedFailure
+    def test_unsupported_compression_refused(self) -> None:
+        """A compression method zipfile cannot read is a refusal."""
+        archive = self.root / "a.zip"
+        with zipfile.ZipFile(archive, "w", zipfile.ZIP_STORED) as bundle:
+            bundle.writestr("manifest.json", MANIFEST)
+        # Method field: offset 8 locally, 10 in the central directory.
+        offsets = {b"PK\x03\x04": 8, b"PK\x01\x02": 10}
+        rewrite_headers(archive, "manifest.json", offsets, "<H", 99)
+        with self.assertRaisesRegex(fetcher.Refused, "compression"):
+            fetcher.extract(archive, self.output)
+
+    @unittest.expectedFailure
+    def test_encrypted_entry_refused(self) -> None:
+        """An entry flagged as encrypted is a refusal."""
+        archive = self.root / "a.zip"
+        with zipfile.ZipFile(archive, "w", zipfile.ZIP_STORED) as bundle:
+            bundle.writestr("manifest.json", MANIFEST)
+        # Flag field: offset 6 locally, 8 in the central directory.
+        offsets = {b"PK\x03\x04": 6, b"PK\x01\x02": 8}
+        rewrite_headers(archive, "manifest.json", offsets, "<H", 1)
+        with self.assertRaisesRegex(fetcher.Refused, "encrypted"):
+            fetcher.extract(archive, self.output)
+
+    @unittest.expectedFailure
+    def test_corrupt_deflate_stream_refused(self) -> None:
+        """Deflate data that fails to decode is a refusal."""
+        archive = make_zip({"manifest.json": MANIFEST * 64}, self.root / "a.zip")
+        data = bytearray(archive.read_bytes())
+        # Corrupt the compressed bytes just past the local header and name.
+        start = 30 + len("manifest.json")
+        data[start : start + 8] = b"\xff" * 8
+        archive.write_bytes(bytes(data))
+        with self.assertRaises(fetcher.Refused):
             fetcher.extract(archive, self.output)
 
 

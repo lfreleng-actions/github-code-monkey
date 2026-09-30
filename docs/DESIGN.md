@@ -244,8 +244,8 @@ Consequences the implementation has to handle:
 
 - **Message composition.** The publisher takes the subject and body
   from the agent's commit, appends the `Co-authored-by` trailer for
-  the **assistant**, Copilot, whichever model served it (§10.3) if
-  absent, then
+  the **assistant**, Copilot, whichever model served it (§10.3),
+  replacing any agent-written trailer at that address, then
   `Signed-off-by: <bot login>[bot] <id+login[bot]@users.noreply.github.com>`.
   It rejects a subject over the repository's `.gitlint` limit or
   lacking a capitalised Conventional Commit type.

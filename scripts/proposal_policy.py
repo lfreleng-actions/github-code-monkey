@@ -236,15 +236,23 @@ def trailer_address(line: str) -> str | None:
 
 
 def compose_trailers(trailers: list[str], identity: Identity) -> list[str]:
-    """Ensure the assistant's co-author and the bot's sign-off close the block."""
-    kept = [line for line in trailers if line.strip() != identity.sign_off]
+    """Close the block with the assistant's co-author and the bot's sign-off.
+
+    An agent-written co-author at the assistant's address gives way to
+    the configured identity, so no display name can stand in for it;
+    git compares trailer keys without regard to case, and so does this.
+    """
     address = trailer_address(identity.coauthor)
-    present = any(
-        line.startswith("Co-authored-by:") and trailer_address(line) == address
-        for line in kept
-    )
-    if not present:
-        kept.append(f"Co-authored-by: {identity.coauthor}")
+    kept = [
+        line
+        for line in trailers
+        if line.strip() != identity.sign_off
+        and not (
+            line.lower().startswith("co-authored-by:")
+            and trailer_address(line) == address
+        )
+    ]
+    kept.append(f"Co-authored-by: {identity.coauthor}")
     kept.append(identity.sign_off)
     return kept
 

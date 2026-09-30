@@ -327,7 +327,6 @@ class ComposeTrailersTest(unittest.TestCase):
         """An empty block gains both trailers in order."""
         self.assertEqual(policy.compose_trailers([], IDENTITY), [COAUTHOR, SIGN_OFF])
 
-    @unittest.expectedFailure
     def test_same_address_trailer_is_replaced(self) -> None:
         """An agent trailer at the canonical address cannot rename it."""
         for spoof in (
@@ -352,7 +351,6 @@ class ComposeTrailersTest(unittest.TestCase):
             [lookalike, COAUTHOR, SIGN_OFF],
         )
 
-    @unittest.expectedFailure
     def test_address_match_is_case_insensitive(self) -> None:
         """Mail addresses compare case-insensitively."""
         existing = "Co-authored-by: Claude <NoReply@Anthropic.com>"

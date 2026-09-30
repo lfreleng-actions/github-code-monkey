@@ -295,11 +295,8 @@ def provenance_block(
     base_sha: str,
     commands: list[dict[str, Any]],
 ) -> str:
-    """The block appended to every pull request body."""
+    """The block that heads every pull request body, before agent text."""
     lines = [
-        "",
-        "---",
-        "",
         "<details>",
         "<summary>Authored by an AI agent; human review required</summary>",
         "",

@@ -541,7 +541,7 @@ class ProvenanceBlockTest(unittest.TestCase):
         self.assertIn("| Command | Exit |", block)
         self.assertIn("| `uv run pytest \\| tee 'log'` | 0 |", block)
         self.assertIn("| `make` | ? |", block)
-        self.assertTrue(block.startswith("\n---\n"))
+        self.assertTrue(block.startswith("<details>\n"))
         self.assertTrue(block.endswith("</details>\n"))
 
     def test_without_commands_or_run(self) -> None:

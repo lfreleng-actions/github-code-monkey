@@ -617,14 +617,14 @@ For each selected issue:
    (an existing branch is a rejection), then replay commits per §5.
 7. **Open the pull request** (`pull-requests` mode) against the
    default branch: title from the manifest (equal to the subject on
-   a single commit, enforced); a body that opens with the
-   publisher's own `Closes #<n>` line, which nothing the agent
-   writes can precede or turn into code, so the merge closes the
-   issue, followed by the manifest's body with
-   `@mentions` defused, so agent text cannot notify anyone before a
-   human reads it, and an appended provenance block (run URL, model,
-   issue link, commands run), label `code-monkey` if the label
-   exists. Not a draft: a
+   a single commit, enforced); a body the publisher heads with its
+   own `Closes #<n>` line and a provenance block (run URL, model,
+   issue link, commands run, the AI authorship disclosure), which
+   nothing the agent writes can precede, hide or turn into code, so
+   the merge closes the issue and the disclosure always shows;
+   then, below a rule, the manifest's body with `@mentions`
+   defused, so agent text cannot notify anyone before a human reads
+   it; label `code-monkey` if the label exists. Not a draft: a
    ready pull request triggers the automatic Copilot review and
    notifies code owners; a draft does neither by default.
 8. **Comment on the issue** with one line: the pull request URL on
@@ -1154,8 +1154,8 @@ here; `result.json` (§18.4) adds `publish-failed` for a write that
 failed after verification, with the branch rolled back.
 `reasons` explains anything but `proposed`. `commits[].body` is the
 composed message the publisher will send: the agent's body plus the
-trailers §5 describes. `pr_body` carries the appended provenance
-block.
+trailers §5 describes. `pr_body` is the composed body: the closing
+line and provenance block first, then the agent's text.
 
 ### 18.4 `result.json` (publish, per issue; trusted)
 

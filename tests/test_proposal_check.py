@@ -304,11 +304,10 @@ class RunCheckProposedTest(GitCase):
             base_sha=self.fixture.base_sha,
             commands=[{"command": "uv run pytest", "exit_code": 0}],
         )
-        self.assertTrue(check.pr_body.endswith(provenance))
-        self.assertTrue(
-            check.pr_body.startswith(
-                f"Closes #{ISSUE}\n\nFix the typo in the readme.\n\nCloses #{ISSUE}"
-            )
+        self.assertEqual(
+            check.pr_body,
+            f"Closes #{ISSUE}\n\n{provenance}\n---\n\n"
+            f"Fix the typo in the readme.\n\nCloses #{ISSUE}\n",
         )
         self.assertEqual(check.files_changed, 1)
         self.assertEqual(check.added_bytes, len(fixed.encode("utf-8")))
@@ -345,7 +344,6 @@ class RunCheckProposedTest(GitCase):
                 check.pr_body.startswith(f"Closes #{ISSUE}\n\n"), check.pr_body
             )
 
-    @unittest.expectedFailure
     def test_provenance_precedes_the_agent_body(self) -> None:
         """An unclosed fence or HTML block cannot hide the AI disclosure."""
         for index, agent_body in enumerate(

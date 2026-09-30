@@ -332,11 +332,14 @@ def verify_proposal(check: Check, manifest: dict[str, Any], context: Context) ->
         commands=check.commands,
     )
     # The body is agent output: defuse mentions before a human has
-    # read it, as the issue comments already do. The closing line is
-    # the publisher's and comes first, so nothing the agent writes can
-    # precede it or turn it into code, and the merge closes the issue.
+    # read it, as the issue comments already do. The publisher's text
+    # comes first, the closing line and then the provenance, so no
+    # unclosed construct in the agent's text can hide either, and the
+    # merge closes the issue.
     check.pr_body = (
-        f"Closes #{check.issue}\n\n" + policy.defuse_mentions(body) + "\n" + provenance
+        f"Closes #{check.issue}\n\n{provenance}\n---\n\n"
+        + policy.defuse_mentions(body)
+        + "\n"
     )
     policy.check_pull_request_body_size(check.pr_body)
 

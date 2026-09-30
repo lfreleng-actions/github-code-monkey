@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 policy = import_module("proposal_policy")
+markdown = import_module("markdown_code")
 
 IDENTITY = policy.Identity(
     coauthor="Claude <noreply@anthropic.com>",
@@ -508,7 +509,7 @@ class CheckPullRequestTextTest(unittest.TestCase):
         """Long runs of list and quote markers cannot stall the fence scan."""
         hostile = ("- " * 20_000 + "x\n") + ("> " * 20_000 + "x\n")
         started = time.monotonic()
-        policy.strip_code(hostile)
+        markdown.strip_code(hostile)
         self.assertLess(time.monotonic() - started, 2)
 
     def test_closing_keyword_inside_code_does_not_count(self) -> None:
@@ -616,12 +617,12 @@ class StripCodeSpansTest(unittest.TestCase):
         }
         for text, expected in cases.items():
             with self.subTest(text=text):
-                self.assertEqual(policy.strip_code_spans(text), expected)
+                self.assertEqual(markdown.strip_code_spans(text), expected)
 
     def test_hostile_run_is_linear(self) -> None:
         """A long run of backticks is quick, where a regex backtracked for seconds."""
         started = time.perf_counter()
-        policy.strip_code("x " + "`" * 50_000)
+        markdown.strip_code("x " + "`" * 50_000)
         self.assertLess(time.perf_counter() - started, 1.0)
 
 

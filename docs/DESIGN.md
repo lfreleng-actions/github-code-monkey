@@ -913,6 +913,7 @@ scripts/monkey_github.py                 gh wrapper, REST and GraphQL
 scripts/monkey_evidence.py               evidence digests, file caps
 scripts/proposal_fetch.py                bounded proposal extraction
 scripts/proposal_policy.py               the rules a proposal must pass
+scripts/markdown_code.py                 code regions in a PR body
 scripts/proposal_check.py                offline bundle verification
 scripts/proposal_model.py                verdict record and its rendering
 scripts/publish.py                       replay, open PR, reconcile

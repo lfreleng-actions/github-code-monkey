@@ -331,7 +331,7 @@ def filtered_comments(repo: str, number: int) -> tuple[list[dict[str, Any]], int
 
     Reads at most ``MAX_COMMENT_PAGES`` pages, oldest first, and stops
     once the count is full. Returns the kept comments, how many it
-    read and dropped, and whether older history went unread.
+    read and dropped, and whether newer comments went unread.
     """
     kept: list[dict[str, Any]] = []
     dropped = 0
@@ -357,7 +357,7 @@ def filtered_comments(repo: str, number: int) -> tuple[list[dict[str, Any]], int
             return kept, dropped, False
         if len(kept) >= MAX_COMMENTS:
             break
-    # A full last page means more history may exist that was not read.
+    # A full last page means newer comments may exist that were not read.
     return kept, dropped, True
 
 

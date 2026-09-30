@@ -391,7 +391,7 @@ directly. The packet includes a comment when its
 comments and 64 KiB in total, and drops the rest with a count of
 what it dropped. It reads at most three pages of 100 comments,
 oldest first, stopping once the count fills, and records
-`comments_truncated` when older history went unread, so a long
+`comments_truncated` when newer comments went unread, so a long
 thread cannot exhaust the select job. The issue body itself is always present: external
 reports are the point of the exercise, and the prompt treats every
 body as data rather than instruction.

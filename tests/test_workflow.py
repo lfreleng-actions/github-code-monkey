@@ -558,6 +558,19 @@ class SelectAndReportContracts(ReusableWorkflowCase):
         self.assertIn("inputs.mode != 'select'", condition)
         self.assertIn("inputs.github_app_client_id == ''", condition)
 
+    def test_live_runs_must_name_their_targets(self) -> None:
+        """Until the fork path lands, a live writing run needs a repository list."""
+        guard = self.step("select", "Require named targets for live runs")
+        condition = unwrap(str(guard["if"]))
+        self.assertIn("!inputs.dry_run", condition)
+        self.assertIn("inputs.mode != 'select'", condition)
+        self.assertIn("steps.budget.outputs.repositories == ''", condition)
+        self.assertIn("exit 1", str(guard["run"]))
+        steps = self.steps("select")
+        self.assertLess(
+            steps.index(guard), steps.index(self.step("select", "app-token"))
+        )
+
     def test_read_mint_scopes_to_the_requested_repositories(self) -> None:
         """Selection reads with the caller's repository list; empty is org-wide."""
         mint = self.step("select", "app-token")

@@ -904,6 +904,9 @@ write-good and `aislop` at threshold 100.
    `pull-requests` dispatch names its targets in `repositories` and
    keeps to repositories whose workflows hold no secrets (a `test-*`
    project), since the bot's branch there runs as trusted code. The
+   select job enforces the first half: a live writing run with no
+   repositories named fails before the job mints any token. Whether a
+   named repository holds secrets stays a human judgement. The
    schedule stays dry-run; dry-run and `select` mode need neither.
 1. Land the workflow with the schedule in dry-run and
    `pull-requests` mode. Inspect diffs, messages and abstentions

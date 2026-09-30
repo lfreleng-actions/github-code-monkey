@@ -248,6 +248,19 @@ jobs:
           echo '::error::Live runs require organisation App credentials'
           exit 1
 
+      # Until bot branches publish from forks (docs/DESIGN.md 4.3), a
+      # live branch lands in the target repository and its CI runs the
+      # agent's code with that repository's secrets. A live run must
+      # therefore name its targets; an organisation-wide live run is
+      # refused. Whether a named repository is safe stays a human call.
+      - name: 'Require named targets for live runs'
+        # yamllint disable-line rule:line-length
+        if: ${{ !inputs.dry_run && inputs.mode != 'select' && steps.budget.outputs.repositories == '' }}
+        run: |
+          echo '::error::A live run must name its repositories' \
+            'until fork publishing lands (docs/DESIGN.md 4.3)'
+          exit 1
+
       - name: 'Mint read-only App token'
         id: app-token
         if: inputs.github_app_client_id != ''

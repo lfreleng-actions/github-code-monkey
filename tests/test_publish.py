@@ -135,6 +135,7 @@ class NoNetworkCase(unittest.TestCase):
             mode=mode,
             dry_run=dry_run,
             run_attempt=1,
+            author_session="",
             output=self.root / "result.json",
         )
 
@@ -248,6 +249,15 @@ class RunApplyTest(NoNetworkCase):
         self.assertEqual(result["premium_requests"], 4)
         self.assertEqual(result["agent_seconds"], 90)
         self.assertEqual(result["pr_title"], "Fix: Both")
+
+    @unittest.expectedFailure
+    def test_author_session_is_recorded(self) -> None:
+        """The trusted proposal artifact ID travels into the result."""
+        path = self.write_check(check_json(verdict="abstain"))
+        args = self.apply_args(path)
+        self.assertIsNone(publish.run_apply(args)["author_session"])
+        args.author_session = "101"
+        self.assertEqual(publish.run_apply(args)["author_session"], "101")
 
     def test_dry_run(self) -> None:
         """Dry run with a proposed verdict records the flag and stops."""
@@ -1058,6 +1068,40 @@ class RunReportTest(NoNetworkCase):
         self.assertEqual(report["totals"]["proposed"], 1)
         self.assertEqual(report["totals"]["publish-failed"], 0)
         self.assertEqual(report["premium_requests"], 5)
+
+    @unittest.expectedFailure
+    def test_each_author_session_is_paid_for_once(self) -> None:
+        """A rerun author session adds its spend; a publish retry does not."""
+        results = self.root / "results"
+        attempts = (
+            (1, "publish-failed", 30, "101"),
+            (2, "publish-failed", 5, "102"),
+            (3, "proposed", 5, "102"),
+        )
+        for attempt, verdict, spend, session in attempts:
+            directory = results / f"monkey-result-ns-repo-7-{attempt}"
+            directory.mkdir(parents=True)
+            (directory / "result.json").write_text(
+                json.dumps(
+                    result_json(
+                        run_attempt=attempt,
+                        verdict=verdict,
+                        premium_requests=spend,
+                        author_session=session,
+                    )
+                ),
+                encoding="utf-8",
+            )
+        out = self.root / "report.json"
+        reporting.run_report(
+            argparse.Namespace(
+                results=results, output_md=self.root / "report.md", output_json=out
+            )
+        )
+        report = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(len(report["results"]), 1)
+        self.assertEqual(report["results"][0]["run_attempt"], 3)
+        self.assertEqual(report["premium_requests"], 35)
 
     def test_report(self) -> None:
         """One row per result, an unreadable row and correct totals."""

@@ -13,7 +13,7 @@ import tempfile
 import time
 import unittest
 import zipfile
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -237,6 +237,20 @@ class MainTest(unittest.TestCase):
         self.assertEqual(self.run_main(fetcher.Refused("big")), fetcher.REFUSED)
         self.assertEqual(self.run_main(github.GitHubError("boom")), 1)
         self.assertEqual(self.run_main(subprocess.TimeoutExpired("gh", 1)), 1)
+
+    @unittest.expectedFailure
+    def test_success_writes_the_artifact_id_as_a_step_output(self) -> None:
+        """Stdout carries only the step output; the file list goes to stderr."""
+        out = io.StringIO()
+        with (
+            patch.object(fetcher, "fetch", return_value=(5, ["manifest.json"])),
+            redirect_stdout(out),
+            redirect_stderr(io.StringIO()),
+        ):
+            fetcher.main(
+                ["--repository", "o/r", "--run-id", "1", "--name", "p", "--output", "x"]
+            )
+        self.assertEqual(out.getvalue(), "artifact_id=5\n")
 
 
 if __name__ == "__main__":

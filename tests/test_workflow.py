@@ -496,6 +496,18 @@ class PublishJobContracts(ReusableWorkflowCase):
         upload = self.step("publish", "Attach publish result")
         self.assertLess(steps.index(ensure), steps.index(upload))
 
+    @unittest.expectedFailure
+    def test_result_names_the_author_session(self) -> None:
+        """The fetched artifact's ID reaches apply, so spend counts per session."""
+        fetch = self.step("publish", "Fetch and accept bounded proposal")
+        self.assertEqual(fetch["id"], "fetch")
+        self.assertIn('--output accepted >> "$GITHUB_OUTPUT"', flatten(fetch["run"]))
+        apply = self.step("publish", "Publish branch and pull request")
+        self.assert_expression(
+            apply["env"]["AUTHOR_SESSION"], "steps.fetch.outputs.artifact_id"
+        )
+        self.assertIn('--author-session "$AUTHOR_SESSION"', squash(str(apply["run"])))
+
     def test_writes_never_fall_back_to_the_native_token(self) -> None:
         """Branch, pull request and comment writes use App tokens alone."""
         apply = self.step("publish", "Publish branch and pull request")

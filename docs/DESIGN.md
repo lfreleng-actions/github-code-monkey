@@ -1167,6 +1167,15 @@ URLs are `null` where the mode or a rejection stopped short, and
 `author_session` where no proposal arrived. The report job merges
 every `result.json` into one table.
 
+**Open gap.** The publisher writes this file, but the report cannot
+yet prove it did: the author job can reach the Actions runtime
+token (§4.1) and upload an artifact of the same name. Until each
+result carries a MAC under a key the author never holds, fetched
+under the bounds §8 step 1 applies to proposals, the report is
+informational, and nothing may write on the strength of it (the
+activity log of §19 included). The maintainers have yet to choose
+the secret that supplies the key.
+
 ### 18.5 Script interfaces
 
 ```text

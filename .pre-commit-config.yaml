@@ -23,7 +23,6 @@ ci:
 default_install_hook_types: [pre-commit, commit-msg]
 default_stages: [pre-commit]
 
-exclude: "^docs/conf.py"
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -115,6 +114,14 @@ repos:
     rev: 357f7eec6dec49bf7693dc0dbec30212226d5492  # frozen: v1.7.12.25
     hooks:
       - id: actionlint
+        # actionlint 1.7.12 predates GitHub's self-repository syntax.
+        # Keep every other check; limit this compatibility exception
+        # to the one local callee, checked by the offline suite too.
+        # https://github.com/rhysd/actionlint/issues/711
+        args:
+          - '-ignore'
+          # yamllint disable-line rule:line-length
+          - '^reusable workflow call "\$/\.github/workflows/code-monkey\.yaml" at "uses" is not following the format '
 
   # Check for misspellings in documentation files
   - repo: https://github.com/codespell-project/codespell
@@ -163,4 +170,3 @@ repos:
         files: ^\.github/workflows/[^/]+$
         types:
           - yaml
-      - id: check-readthedocs

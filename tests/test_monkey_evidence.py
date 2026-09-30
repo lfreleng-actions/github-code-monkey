@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 The Linux Foundation
 
-"""Evidence verification and bounded acceptance of proposal files."""
+"""Evidence verification against trusted digests."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import os
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import redirect_stderr
 from importlib import import_module
 from pathlib import Path
 from unittest.mock import patch
@@ -115,79 +115,6 @@ class VerifyTest(EvidenceDirectory):
             evidence.verify(self.directory, digest(SELECTION), digest(GUIDANCE))
 
 
-class AcceptTest(EvidenceDirectory):
-    """``accept`` copies only the three bounded files."""
-
-    def setUp(self) -> None:
-        """Split the scratch directory into untrusted input and trusted output."""
-        super().setUp()
-        self.untrusted = self.directory / "untrusted"
-        self.untrusted.mkdir()
-        self.output = self.directory / "accepted" / "deep"
-
-    def test_copies_all_three(self) -> None:
-        """Every accepted file is copied byte for byte; nothing else is."""
-        (self.untrusted / "manifest.json").write_bytes(b'{"outcome": "abstain"}')
-        (self.untrusted / "changes.bundle").write_bytes(b"# v2 git bundle\n\x00")
-        (self.untrusted / "usage.json").write_bytes(b"{}")
-        (self.untrusted / "evil.py").write_bytes(b"import os\n")
-        (self.untrusted / "sitecustomize.py").write_bytes(b"")
-        copied = evidence.accept(self.untrusted, self.output)
-        self.assertEqual(copied, ["manifest.json", "changes.bundle", "usage.json"])
-        self.assertEqual(
-            sorted(p.name for p in self.output.iterdir()),
-            ["changes.bundle", "manifest.json", "usage.json"],
-        )
-        self.assertEqual(
-            (self.output / "changes.bundle").read_bytes(), b"# v2 git bundle\n\x00"
-        )
-        self.assertFalse((self.output / "evil.py").exists())
-
-    def test_missing_manifest_raises(self) -> None:
-        """manifest.json is required."""
-        (self.untrusted / "changes.bundle").write_bytes(b"x")
-        with self.assertRaisesRegex(ValueError, "missing manifest.json"):
-            evidence.accept(self.untrusted, self.output)
-
-    def test_optional_files_may_be_absent(self) -> None:
-        """A manifest alone is a complete acceptance."""
-        (self.untrusted / "manifest.json").write_bytes(b"{}")
-        self.assertEqual(
-            evidence.accept(self.untrusted, self.output), ["manifest.json"]
-        )
-        self.assertEqual([p.name for p in self.output.iterdir()], ["manifest.json"])
-
-    def test_symlinked_bundle_refused(self) -> None:
-        """An optional file present as a symlink is an error, not skipped."""
-        (self.untrusted / "manifest.json").write_bytes(b"{}")
-        target = self.directory / "outside.bundle"
-        target.write_bytes(b"secret")
-        os.symlink(target, self.untrusted / "changes.bundle")
-        with self.assertRaises((OSError, ValueError)):
-            evidence.accept(self.untrusted, self.output)
-        self.assertFalse((self.output / "changes.bundle").exists())
-
-    def test_dangling_symlink_refused(self) -> None:
-        """A dangling symlink for a required file is not treated as missing."""
-        os.symlink(self.directory / "nowhere", self.untrusted / "manifest.json")
-        with self.assertRaises(OSError):
-            evidence.accept(self.untrusted, self.output)
-
-    def test_oversize_bundle_refused(self) -> None:
-        """A bundle over the cap is refused."""
-        (self.untrusted / "manifest.json").write_bytes(b"{}")
-        (self.untrusted / "changes.bundle").write_bytes(b"b" * 100)
-        with (
-            patch.object(
-                evidence,
-                "ACCEPTED_FILES",
-                (("manifest.json", 1024, True), ("changes.bundle", 50, False)),
-            ),
-            self.assertRaisesRegex(ValueError, "exceeds the 50-byte limit"),
-        ):
-            evidence.accept(self.untrusted, self.output)
-
-
 class MainTest(EvidenceDirectory):
     """The command line dispatches and reports failures with a prefix."""
 
@@ -225,41 +152,6 @@ class MainTest(EvidenceDirectory):
         self.assertEqual(caught.exception.code, 1)
         self.assertTrue(stderr.getvalue().startswith("evidence: "))
         self.assertIn("mismatch for selection.json", stderr.getvalue())
-
-    def test_accept_command(self) -> None:
-        """``accept`` copies and lists the files it took."""
-        untrusted = self.directory / "u"
-        untrusted.mkdir()
-        (untrusted / "manifest.json").write_bytes(b"{}")
-        (untrusted / "usage.json").write_bytes(b"{}")
-        output = self.directory / "o"
-        stdout = io.StringIO()
-        with redirect_stdout(stdout):
-            evidence.main(
-                ["accept", "--directory", str(untrusted), "--output", str(output)]
-            )
-        self.assertEqual(stdout.getvalue(), "accepted: manifest.json, usage.json\n")
-        self.assertTrue((output / "usage.json").is_file())
-
-    def test_accept_failure_exits_one(self) -> None:
-        """A missing manifest exits 1 with the prefix."""
-        untrusted = self.directory / "u"
-        untrusted.mkdir()
-        stderr = io.StringIO()
-        with redirect_stderr(stderr), self.assertRaises(SystemExit) as caught:
-            evidence.main(
-                [
-                    "accept",
-                    "--directory",
-                    str(untrusted),
-                    "--output",
-                    str(self.directory / "o"),
-                ]
-            )
-        self.assertEqual(caught.exception.code, 1)
-        self.assertIn(
-            "evidence: 'proposal is missing manifest.json'", stderr.getvalue()
-        )
 
     def test_missing_command_is_usage_error(self) -> None:
         """No subcommand is an argparse error (exit 2)."""

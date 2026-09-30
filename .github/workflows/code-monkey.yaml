@@ -756,49 +756,44 @@ jobs:
             --directory evidence --selection-sha256 "$SELECTION_SHA" \
             --guidance-sha256 "$GUIDANCE_SHA"
 
-      # The proposal is untrusted whatever its name; the publisher
-      # cross-checks its content against the verified selection. A
-      # missing artifact means the author job never got that far.
-      - name: 'Fetch untrusted proposal'
-        id: fetch
-        continue-on-error: true
-        # yamllint disable-line rule:line-length
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          # yamllint disable-line rule:line-length
-          name: "monkey-proposal-${{ needs.select.outputs.namespace }}-${{ matrix.key }}"
-          path: 'untrusted-proposal'
-
-      - name: 'Accept bounded proposal files'
+      # The proposal is untrusted whatever its name, and its archive is
+      # never extracted blindly: proposal_fetch.py bounds the zip size,
+      # entry count and each file before writing anything
+      # (docs/DESIGN.md section 8). A missing or refused artifact still
+      # yields a typed manifest, so the check, result, comment and
+      # report rows all happen for this issue.
+      - name: 'Fetch and accept bounded proposal'
         env:
-          FETCHED: "${{ steps.fetch.outcome }}"
-          REPOSITORY: "${{ matrix.repository }}"
+          GH_TOKEN: "${{ github.token }}"
+          REPOSITORY: "${{ github.repository }}"
+          RUN_ID: "${{ github.run_id }}"
+          # yamllint disable-line rule:line-length
+          NAME: "monkey-proposal-${{ needs.select.outputs.namespace }}-${{ matrix.key }}"
+          TARGET: "${{ matrix.repository }}"
           ISSUE: "${{ matrix.number }}"
           BASE_SHA: "${{ matrix.base_sha }}"
           BRANCH: "${{ matrix.branch }}"
         run: |
           # shellcheck disable=SC2016  # jq variables, not shell expansions
-          # A missing or unacceptable artifact (oversized, symlinked,
-          # malformed) still yields a typed manifest, so the check,
-          # result, comment and report rows all happen for this issue.
-          reason=''
-          if [ "$FETCHED" != success ]; then
-            reason='the author job produced no proposal artifact'
-          elif ! python3 monkey-assets/scripts/monkey_evidence.py accept \
-              --directory untrusted-proposal --output accepted; then
-            reason='the proposal artifact failed bounded acceptance'
-          fi
-          if [ -n "$reason" ]; then
-            rm -rf accepted
-            mkdir -p accepted
-            jq -n --arg repo "$REPOSITORY" --argjson issue "$ISSUE" \
-              --arg base "$BASE_SHA" --arg branch "$BRANCH" \
-              --arg reason "$reason" '{
-                schema: 1, outcome: "author-failed",
-                repository: $repo, issue: $issue, base_sha: $base,
-                branch: $branch, reason: $reason
-              }' > accepted/manifest.json
-          fi
+          status=0
+          python3 monkey-assets/scripts/proposal_fetch.py \
+            --repository "$REPOSITORY" --run-id "$RUN_ID" --name "$NAME" \
+            --output accepted || status=$?
+          case "$status" in
+            0) exit 0 ;;
+            3) reason='the author job produced no proposal artifact' ;;
+            4) reason='the proposal artifact failed bounded acceptance' ;;
+            *) exit "$status" ;;
+          esac
+          rm -rf accepted
+          mkdir -p accepted
+          jq -n --arg repo "$TARGET" --argjson issue "$ISSUE" \
+            --arg base "$BASE_SHA" --arg branch "$BRANCH" \
+            --arg reason "$reason" '{
+              schema: 1, outcome: "author-failed",
+              repository: $repo, issue: $issue, base_sha: $base,
+              branch: $branch, reason: $reason
+            }' > accepted/manifest.json
 
       - name: 'Check proposal offline'
         id: check

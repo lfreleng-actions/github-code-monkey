@@ -557,11 +557,16 @@ For each selected issue:
    (`monkey-proposal-<namespace>-<key>`). A missing artifact records
    `author-failed` for that issue. The evidence file `selection.json`
    comes by the select job's artifact **ID** and must match its
-   digest before anything else happens; `monkey_evidence.py accept`
-   then copies the bounded manifest, bundle and usage files and
-   nothing else out of the untrusted download. An artifact that
-   fails that acceptance records `author-failed` the same way, so
-   every issue reaches a result, a comment and a report row.
+   digest before anything else happens. `proposal_fetch.py` then
+   fetches the untrusted proposal through the API rather than
+   `download-artifact`, which would extract it before any size
+   check: it refuses a zip larger than the sum of the file caps,
+   streams it to disk under that limit, checks the zip directory
+   (entry count, regular files, per-file caps) and extracts the
+   manifest, bundle and usage files alone, each read with a hard
+   stop. An artifact it refuses records `author-failed` the same
+   way, so every issue reaches a result, a comment and a report
+   row.
 2. **Verify the bundle.** `git bundle verify` against a fresh
    credential-less fetch of the target at the recorded base SHA. The
    bundle's prerequisite must equal that SHA, the history must be
@@ -884,7 +889,8 @@ scripts/issue_categories.py              category switches and matching
 scripts/selection_outputs.py             selection files and summary
 scripts/issue_reads.py                   GitHub reads for selection
 scripts/monkey_github.py                 gh wrapper, REST and GraphQL
-scripts/monkey_evidence.py               bounded verified copies
+scripts/monkey_evidence.py               evidence digests, file caps
+scripts/proposal_fetch.py                bounded proposal extraction
 scripts/proposal_policy.py               the rules a proposal must pass
 scripts/proposal_check.py                offline bundle verification
 scripts/proposal_model.py                verdict record and its rendering
@@ -1158,7 +1164,8 @@ select_issues.py --org ORG --output-dir DIR --mode MODE --model ID
 
 monkey_evidence.py verify --directory DIR --selection-sha256 HEX
     --guidance-sha256 HEX
-monkey_evidence.py accept --directory UNTRUSTED --output ACCEPTED
+proposal_fetch.py --repository O/R --run-id ID --name ARTIFACT
+    --output ACCEPTED
 
 publish.py check --selection PATH --key KEY --proposal-dir DIR
     --workdir DIR --coauthors PATH --output check.json

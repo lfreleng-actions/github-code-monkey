@@ -426,29 +426,26 @@ class PublishJobContracts(ReusableWorkflowCase):
         verified = self.step("publish", "verified")
         self.assertIn("monkey_evidence.py verify", flatten(verified["run"]))
 
-        fetch = self.step("publish", "fetch")
-        self.assertTrue(is_action(fetch, DOWNLOAD))
-        with_ = cast(dict[str, Any], fetch["with"])
-        self.assertIn("name", with_)
-        self.assertNotIn("artifact-ids", with_)
-        self.assertEqual(with_["path"], "untrusted-proposal")
-        self.assertIs(fetch["continue-on-error"], True)
+        # The proposal is never extracted by download-artifact: the
+        # bounded fetcher checks sizes before writing anything.
+        fetch = self.step("publish", "Fetch and accept bounded proposal")
+        self.assertNotIn("uses", fetch)
+        script = flatten(fetch["run"])
+        self.assertIn("monkey-assets/scripts/proposal_fetch.py", script)
+        self.assertIn("--output accepted", script)
+        self.assertIn(
+            "3) reason='the author job produced no proposal artifact'", script
+        )
+        self.assertIn(
+            "4) reason='the proposal artifact failed bounded acceptance'", script
+        )
+        self.assertIn('*) exit "$status"', script)
+        self.assertIn('"author-failed"', script)
+        self.assertEqual(self.actions("publish", DOWNLOAD), [evidence])
 
         steps = self.steps("publish")
         self.assertLess(steps.index(evidence), steps.index(verified))
         self.assertLess(steps.index(verified), steps.index(fetch))
-
-        accept = self.step("publish", "Accept bounded proposal files")
-        self.assert_expression(accept["env"]["FETCHED"], "steps.fetch.outcome")
-        script = flatten(accept["run"])
-        self.assertIn('if [ "$FETCHED" != success ]', script)
-        # A failed acceptance falls through to the typed manifest too.
-        self.assertIn(
-            "elif ! python3 monkey-assets/scripts/monkey_evidence.py accept", script
-        )
-        self.assertIn("the proposal artifact failed bounded acceptance", script)
-        self.assertIn("monkey_evidence.py accept", script)
-        self.assertIn('"author-failed"', script)
 
     def test_offline_check_and_scoped_token_mints(self) -> None:
         """The check has no token; each mint names one repository and grants."""
@@ -511,7 +508,18 @@ class PublishJobContracts(ReusableWorkflowCase):
         )
         self.assertNotIn("github.token", dumped(apply))
         self.assertNotIn("github.token", dumped(comment))
-        self.assertNotIn("github.token", dumped(self.jobs["publish"]))
+        # The native token appears once in the job: reading this run's
+        # artifacts, with the job's actions: read and nothing more.
+        users = [
+            step.get("name")
+            for step in self.steps("publish")
+            if "github.token" in dumped(step)
+        ]
+        self.assertEqual(users, ["Fetch and accept bounded proposal"])
+        self.assertEqual(
+            self.jobs["publish"]["permissions"],
+            {"actions": "read", "contents": "read"},
+        )
 
     def test_provenance_inputs_are_shape_checked(self) -> None:
         """Select outputs are validated as SHA, ID, digests and key patterns."""

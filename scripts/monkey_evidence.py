@@ -1,17 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 The Linux Foundation
 
-"""Verify trusted evidence and accept bounded files from an untrusted proposal.
+"""Verify trusted evidence, and hold the caps on untrusted proposal files.
 
 ``verify --directory DIR --selection-sha256 HEX --guidance-sha256 HEX``
 checks the exact bytes of ``selection.json`` and ``agents.md`` against
 digests the select job published as job outputs, never against values
 found in the downloaded artifact.
 
-``accept --directory UNTRUSTED --output ACCEPTED`` copies the three
-files the publisher reads from an author artifact, each bounded and
-required to be a regular non-symlink file. Anything else in the
-directory is ignored: never import from it, never execute from it.
+``ACCEPTED_FILES`` names the three files the publisher takes from an
+author's proposal and the cap on each; ``proposal_fetch`` enforces
+them while extracting the artifact.
 """
 
 from __future__ import annotations
@@ -71,40 +70,17 @@ def verify(directory: Path, selection_sha256: str, guidance_sha256: str) -> None
             raise ValueError(f"SHA-256 mismatch for {name}")
 
 
-def accept(directory: Path, output: Path) -> list[str]:
-    """Copy the bounded proposal files into a trusted directory; return their names."""
-    output.mkdir(parents=True, exist_ok=True)
-    copied: list[str] = []
-    for name, limit, required in ACCEPTED_FILES:
-        source = directory / name
-        if not source.exists() and not source.is_symlink():
-            if required:
-                raise ValueError(f"proposal is missing {name}")
-            continue
-        content = read_regular(source, limit)
-        (output / name).write_bytes(content)
-        copied.append(name)
-    return copied
-
-
 def main(argv: list[str] | None = None) -> None:
-    """Dispatch the verify and accept commands."""
+    """Dispatch the verify command."""
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     verification = commands.add_parser("verify", help="check trusted evidence digests")
     verification.add_argument("--directory", type=Path, required=True)
     verification.add_argument("--selection-sha256", required=True)
     verification.add_argument("--guidance-sha256", required=True)
-    acceptance = commands.add_parser("accept", help="copy bounded proposal files")
-    acceptance.add_argument("--directory", type=Path, required=True)
-    acceptance.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command == "verify":
-            verify(args.directory, args.selection_sha256, args.guidance_sha256)
-        else:
-            copied = accept(args.directory, args.output)
-            print(f"accepted: {', '.join(copied)}")
+        verify(args.directory, args.selection_sha256, args.guidance_sha256)
     except (OSError, ValueError) as exc:
         message = ascii(str(exc)).replace("::", ": :").replace("##[", "# #[")
         parser.exit(1, f"evidence: {message}\n")

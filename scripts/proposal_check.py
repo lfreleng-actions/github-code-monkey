@@ -80,6 +80,10 @@ def read_manifest(path: Path, check: Check) -> dict[str, Any]:
     except PublishError as exc:
         # Agent output; malformed is a verdict, not an operational fault.
         raise Rejection(str(exc)) from exc
+    schema = manifest.get("schema")
+    # bool is an int subclass and 1.0 == 1; neither is the contract.
+    if type(schema) is not int or schema != policy.MANIFEST_SCHEMA:
+        raise Rejection(f"manifest schema {schema!r} is not supported")
     outcome = manifest.get("outcome")
     if outcome not in policy.MANIFEST_OUTCOMES:
         raise Rejection(f"manifest outcome {outcome!r} is not recognised")

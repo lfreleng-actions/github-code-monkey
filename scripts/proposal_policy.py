@@ -68,6 +68,8 @@ MODE_SUBMODULE = "160000"
 LABEL = "code-monkey"
 VERDICTS = ("proposed", "abstain", "rejected", "author-failed", "publish-failed")
 MANIFEST_OUTCOMES = ("proposed", "abstain", "author-failed")
+# The one manifest schema this publisher reads (docs/DESIGN.md 18.2).
+MANIFEST_SCHEMA = 1
 
 
 class PublishError(Exception):

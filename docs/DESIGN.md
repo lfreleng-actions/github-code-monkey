@@ -1083,12 +1083,14 @@ leaves none, the workflow writes one with `"outcome":
 }
 ```
 
-`outcome` is `proposed`, `abstain` or `author-failed`; the last two
-need a `reason`. `changes.bundle` sits beside it when the
-outcome is `proposed`, created by the workflow (not the agent) from
-`base_sha..branch`. `usage.json` is the CLI's own usage output.
-Bounds on acceptance: manifest 1 MiB, bundle 32 MiB, usage 1 MiB;
-regular files, no symlinks.
+`schema` must be the integer `1`; the publisher rejects any other
+value, or none, rather than read the fields under a contract it
+does not know. `outcome` is `proposed`, `abstain` or
+`author-failed`; the last two need a `reason`. `changes.bundle`
+sits beside the manifest when the outcome is `proposed`, created by
+the workflow (not the agent) from `base_sha..branch`. `usage.json`
+is the CLI's own usage output. Bounds on acceptance: manifest
+1 MiB, bundle 32 MiB, usage 1 MiB; regular files, no symlinks.
 
 ### 18.3 `check.json` (publish, offline verdict; trusted)
 

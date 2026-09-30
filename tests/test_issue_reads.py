@@ -209,74 +209,10 @@ class BotIdentityTest(ReadsCase):
 class PriorAttemptTest(ReadsCase):
     """``prior_attempt`` consults pull requests first, then the branch."""
 
-    def test_pull_request_exists(self) -> None:
-        """A same-repository PR from the branch is enough; the branch is not read."""
-        same = json.dumps(
-            [
-                {
-                    "number": 3,
-                    "isCrossRepository": False,
-                    "headRepository": {"nameWithOwner": "org/repo"},
-                }
-            ]
-        )
-        with (
-            patch.object(github, "run_gh", return_value=same) as gh,
-            patch.object(github, "api_object") as read,
-        ):
-            self.assertTrue(reads.prior_attempt("org/repo", "code-monkey/issue-3"))
-        read.assert_not_called()
-        args = gh.call_args.args[0]
-        self.assertEqual(args[:2], ["pr", "list"])
-        self.assertIn("--head", args)
-        self.assertEqual(args[args.index("--head") + 1], "code-monkey/issue-3")
-        self.assertEqual(args[args.index("--state") + 1], "all")
-        self.assertIn("headRepository", args[args.index("--json") + 1])
-
-    def test_fork_pull_request_does_not_count(self) -> None:
-        """A PR from a fork branch of the same name is not a bot attempt."""
-        fork = json.dumps(
-            [
-                {
-                    "number": 9,
-                    "isCrossRepository": True,
-                    "headRepository": {"nameWithOwner": "someone/repo"},
-                }
-            ]
-        )
-        with (
-            patch.object(github, "run_gh", return_value=fork),
-            patch.object(
-                github,
-                "api_object",
-                side_effect=github.GitHubError("gh: Not Found (HTTP 404)"),
-            ) as read,
-        ):
-            self.assertFalse(reads.prior_attempt("org/repo", "code-monkey/issue-9"))
-        read.assert_called_once()
-
-    def test_head_repository_name_match_is_case_insensitive(self) -> None:
-        """A cross-repository flag alone does not decide; the head name may match."""
-        odd = json.dumps(
-            [
-                {
-                    "number": 4,
-                    "isCrossRepository": True,
-                    "headRepository": {"nameWithOwner": "Org/Repo"},
-                }
-            ]
-        )
-        with (
-            patch.object(github, "run_gh", return_value=odd),
-            patch.object(github, "api_object") as read,
-        ):
-            self.assertTrue(reads.prior_attempt("org/repo", "code-monkey/issue-4"))
-        read.assert_not_called()
-
     def test_no_pull_request_no_branch(self) -> None:
         """An empty list and a 404 on the branch means no prior attempt."""
         with (
-            patch.object(github, "run_gh", return_value="[]"),
+            patch.object(github, "api_page", return_value=[]),
             patch.object(
                 github,
                 "api_object",
@@ -289,7 +225,7 @@ class PriorAttemptTest(ReadsCase):
     def test_branch_exists_without_pull_request(self) -> None:
         """An orphaned bot branch still counts as an attempt."""
         with (
-            patch.object(github, "run_gh", return_value="[]"),
+            patch.object(github, "api_page", return_value=[]),
             patch.object(github, "api_object", return_value={"name": "x"}),
         ):
             self.assertTrue(reads.prior_attempt("org/repo", "code-monkey/issue-3"))
@@ -297,7 +233,7 @@ class PriorAttemptTest(ReadsCase):
     def test_branch_read_failure_propagates(self) -> None:
         """A 500 is not silently treated as absence."""
         with (
-            patch.object(github, "run_gh", return_value="[]"),
+            patch.object(github, "api_page", return_value=[]),
             patch.object(
                 github,
                 "api_object",
@@ -307,19 +243,10 @@ class PriorAttemptTest(ReadsCase):
         ):
             reads.prior_attempt("org/repo", "code-monkey/issue-3")
 
-    def test_non_list_reply_raises(self) -> None:
-        """A non-array reply from ``gh pr list`` is an error."""
-        with (
-            patch.object(github, "run_gh", return_value='{"number": 1}'),
-            self.assertRaises(github.GitHubError),
-        ):
-            reads.prior_attempt("org/repo", "b")
-
 
 class PriorAttemptOwnerHeadTest(ReadsCase):
     """Fork pull requests cannot crowd the bot's own out of the lookup."""
 
-    @unittest.expectedFailure
     def test_owner_qualified_head_filters_server_side(self) -> None:
         """The query names the target's owner, so forks never fill the page."""
         own = [{"number": 3, "head": {"repo": {"full_name": "Org/Repo"}}}]
@@ -334,7 +261,6 @@ class PriorAttemptOwnerHeadTest(ReadsCase):
         self.assertIn("head=org%3Acode-monkey%2Fissue-3", endpoint)
         self.assertIn("state=all", endpoint)
 
-    @unittest.expectedFailure
     def test_other_repository_head_falls_through_to_the_branch(self) -> None:
         """A head in another repository of the owner is not an attempt."""
         other = [{"number": 5, "head": {"repo": {"full_name": "org/other"}}}]

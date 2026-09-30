@@ -320,7 +320,9 @@ the exclusion list and is not `.github` (unless
 - has no pull request, open or closed, from a `code-monkey/*`
   branch **in the target repository itself** (the workflow already
   tried, or a human declined the result); a pull request from a fork
-  branch of the same name does not count, since anyone can open one;
+  branch of the same name does not count, since anyone can open one,
+  and the lookup names the target's owner in its `head` filter so
+  that such pull requests cannot push the bot's own off the page;
 - has no other open pull request linked to close it.
 
 **Ranking.** Priority `Urgent`, then `High`, `Medium`, `Low`; issues

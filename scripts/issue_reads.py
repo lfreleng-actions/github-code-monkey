@@ -202,44 +202,30 @@ def read_priority(repo: str, number: int) -> str | None:
 def prior_attempt(repo: str, branch: str) -> bool:
     """Whether a pull request from the bot branch exists, open or closed.
 
-    ``--head`` matches the branch name alone, and anyone can open a
-    pull request from a fork branch of that name against a public
-    repository. Only a pull request whose head lives in the target
-    repository itself counts; the branch check below covers a branch
-    with no pull request yet.
+    Anyone can open a pull request from a fork branch of the same
+    name, so the query names the target's owner in ``head``: GitHub
+    then filters server-side, and fork pull requests cannot crowd the
+    bot's own out of the page. Only a head in the target repository
+    itself counts; the branch check below covers a branch with no pull
+    request yet.
     """
-    raw = github.run_gh(
-        [
-            "pr",
-            "list",
-            "--repo",
-            repo,
-            "--head",
-            branch,
-            "--state",
-            "all",
-            "--limit",
-            "20",
-            "--json",
-            "number,isCrossRepository,headRepository",
-        ]
-    )
-    parsed = github.decode_response(raw)
-    if not isinstance(parsed, list):
-        raise github.GitHubError("expected a pull request array")
-    for entry in cast("list[Any]", parsed):
-        if not isinstance(entry, dict):
-            raise github.GitHubError("expected pull request objects")
-        data = cast("dict[str, Any]", entry)
-        head = data.get("headRepository")
-        head_name = (
-            cast("dict[str, Any]", head).get("nameWithOwner")
-            if isinstance(head, dict)
+    owner = repo.partition("/")[0]
+    head = urllib.parse.quote(f"{owner}:{branch}", safe="")
+    for entry in github.api_page(
+        f"repos/{repo}/pulls?head={head}&state=all&per_page=100"
+    ):
+        head_data = entry.get("head")
+        head_repo = (
+            cast("dict[str, Any]", head_data).get("repo")
+            if isinstance(head_data, dict)
             else None
         )
-        if data.get("isCrossRepository") is False or (
-            isinstance(head_name, str) and head_name.lower() == repo.lower()
-        ):
+        name = (
+            cast("dict[str, Any]", head_repo).get("full_name")
+            if isinstance(head_repo, dict)
+            else None
+        )
+        if isinstance(name, str) and name.lower() == repo.lower():
             return True
     try:
         github.api_object(f"repos/{repo}/branches/{branch}")

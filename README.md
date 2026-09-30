@@ -58,7 +58,8 @@ jobs:
     with:
       org: my-org
       mode: pull-requests
-      # Dry-run by default. A live run names its targets here and
+      # Dry-run by default. Until bot branches publish from forks
+      # (docs/DESIGN.md 4.3), a live run names its targets here and
       # keeps to repositories whose workflows hold no secrets.
       dry_run: true
       repositories: 'test-python-project'

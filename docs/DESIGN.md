@@ -7,9 +7,10 @@ SPDX-FileCopyrightText: 2026 The Linux Foundation
 
 Status: **implemented, awaiting rollout** (§15). The workflow,
 scripts and offline tests exist; no live run has yet published a
-branch. §17 records the decisions taken on the first draft's open
-questions and the three points that rollout, not further
-discussion, will settle.
+branch. Live publication waits on the bot fork organisations and
+the fork publishing path (§4.3). §17 records the decisions taken on
+the first draft's open questions and the three points that rollout,
+not further discussion, will settle.
 
 This document reuses the architecture, vocabulary and lessons of
 [`github-issues-triage`](https://github.com/lfreleng-actions/github-issues-triage)
@@ -32,7 +33,11 @@ Each weekday, after triage completes, run a coding agent against the
 highest-ranked open issues and open one pull request per issue. Each
 pull request:
 
-- lives on a bot-owned branch in the target repository;
+- comes from a bot-owned branch in a fork held by a bot fork
+  organisation (§4.3), never from a branch in the target repository,
+  so the target's CI runs the agent's code as an outside contribution
+  (the publisher still writes to the target until the fork path
+  lands; §15 step 0 limits live runs meanwhile);
 - carries commits that follow the organisation's `AGENTS.md`
   (signed, DCO trailer, Conventional Commit subject, co-author
   trailer, PR title equal to a single commit's subject);
@@ -148,11 +153,76 @@ assumption.
 The pull request plumbing job executes the pull request's own
 scripts with the native token alone. GitHub gives a fork's
 `pull_request` run a `GITHUB_TOKEN` without write scopes and no
-secrets, and
-here that token can read nothing beyond public issues and contents,
+secrets, and here that token can read nothing beyond public issues and contents,
 expires with the job, and runs under block-mode egress. That is the
 sandbox GitHub intends for untrusted pull requests, and the job
 needs no stronger one.
+
+### 4.3 Publishing from a bot fork organisation
+
+The publisher does **not** push `code-monkey/*` branches into the
+target repository. A branch in the target is a same-repository
+branch, and GitHub runs that repository's `pull_request` workflows
+for it as trusted code: with its secrets and a token that can
+write, before any maintainer has read the change. The code on that
+branch is agent output shaped by issue text, and may include
+workflow edits. Review before merge cannot contain what CI executes
+before review.
+
+Bot branches live in a fork of the target instead, held in a
+dedicated fork organisation, and the publisher opens each pull
+request from that fork. GitHub then treats the change as coming from outside:
+the target's workflows run without secrets and with a token that
+cannot write, subject to the organisation's approval policy for
+outside contributions, and the change still gets full CI.
+
+AI agents that author pull requests for `lfreleng-actions` use
+these organisations for their forks:
+
+<!-- markdownlint-disable MD013 -->
+
+| Fork organisation | Holds forks of |
+| ----------------- | -------------- |
+| `bot-onap-forks` | ONAP project repositories |
+| `bot-oransc-forks` | O-RAN-SC project repositories |
+| `bot-opendaylight-forks` | OpenDaylight project repositories |
+| `bot-forks` | Every other organisation's repositories, `lfreleng-actions` included |
+
+<!-- markdownlint-enable MD013 -->
+
+The dedicated three exist so that each project's forks, and the
+access to them, stay separate from the general pool. The rule
+applies to any agent-authored pull request in `lfreleng-actions`,
+not to this workflow alone; the organisation `AGENTS.md` is the
+right home for it once agreed.
+
+Publishing then works as follows, with the §5 signing unchanged:
+
+1. The publisher resolves the fork organisation for the target's
+   owner from the table, and finds or creates the fork there.
+   Creating a fork through the API needs the App installed on the
+   fork organisation with access to all its repositories and
+   Administration: write, plus Contents: read on the source.
+2. It syncs the fork's default branch with the target
+   (`merge-upstream`), so the recorded base commit is present.
+3. It creates `code-monkey/issue-<n>` in the fork at the base
+   commit and replays the commits there through
+   `createCommitOnBranch`, with a token minted on the fork
+   organisation's installation for that one fork.
+4. It opens the pull request on the target with head
+   `<fork-org>:code-monkey/issue-<n>`, using a token minted on the
+   target organisation's installation.
+5. A prior attempt (§6) is a pull request whose head repository is
+   the designated fork, or a surviving branch in that fork; a
+   same-named branch in any other fork still does not count.
+
+**Prerequisites before any live run.** The four organisations must
+exist. The App must be public so other organisations can install it
+(today it installs on `lfreleng-actions` alone), then installed on
+each fork organisation on all repositories with Contents: write,
+Workflows: write and Administration: write. Until then the
+publisher implements the same-repository path above, and
+§15 holds every live `branches` and `pull-requests` dispatch.
 
 ## 5. Signed Commits Without a Key on the Runner
 
@@ -624,6 +694,18 @@ subject to its final configuration:
 | Pull requests | write | publish | Open PR, label |
 | Workflows | write | publish | Commits that touch `.github/workflows/` |
 
+With fork publishing (§4.3) the App needs a second installation on
+each fork organisation, and the branch and commit writes move
+there; the target installation keeps Pull requests: write to open
+the pull request and Issues: write for the comment.
+
+| Fork-organisation permission | Level | For |
+| ---------------------------- | ----- | --- |
+| Metadata | read | Repository listing |
+| Contents | write | Sync the fork, branch, commits |
+| Workflows | write | Commits that touch `.github/workflows/` |
+| Administration | write | Create a missing fork |
+
 The select job mints a token with the read levels alone, org-wide by
 default and scoped to the named repositories plus the guidance
 repository when the caller lists any;
@@ -766,6 +848,9 @@ write-good and `aislop` at threshold 100.
 
 ## 15. Rollout
 
+0. Meet the §4.3 prerequisites and move the publisher to the fork
+   path. No live `branches` or `pull-requests` dispatch runs before
+   that; dry-run and `select` mode need neither.
 1. Land the workflow with the schedule in dry-run and
    `pull-requests` mode. Inspect diffs, messages and abstentions
    for a week of runs.
@@ -808,6 +893,7 @@ The questions the first draft left open, and how they closed:
 | Question | Decision |
 | -------- | -------- |
 | Model identifiers | Checked live against the pinned CLI; §10.3 |
+| Where bot branches live | Bot fork organisations, never the target (§4.3); CI on agent code runs as an outside contribution |
 | Mode changes and symlinks | Reject; agent banners the human follow-up in the PR body (§5, §7.3). Unsigned commits are unmergeable and create work |
 | Payload cap | 4 MiB added, 512 KiB per binary; rollout confirms (§5) |
 | Workflow edits | In scope from day one; App holds `workflows: write`, minted on demand (§10.1) |

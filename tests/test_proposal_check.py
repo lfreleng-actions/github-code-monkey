@@ -318,6 +318,32 @@ class RunCheckProposedTest(GitCase):
             serialised["stats"], {"files_changed": 1, "added_bytes": len(fixed)}
         )
 
+    @unittest.expectedFailure
+    def test_publisher_owns_the_closing_line(self) -> None:
+        """The body opens with this issue's Closes line whatever the agent wrote.
+
+        Nothing the agent writes can precede it or turn it into code,
+        so the merged pull request closes the selected issue.
+        """
+        for index, agent_body in enumerate(
+            (
+                "Fix the typo in the readme.\n",
+                "<pre>\nCloses #7\n</pre>\n",
+                "- ```text\n  unclosed fence\n",
+            )
+        ):
+            root = self.root / f"case-{index}"
+            root.mkdir()
+            fixture = Fixture(root)
+            fixture.commit("Fix(readme): Correct typo\n\nBody.\n", {"README.md": "x\n"})
+            fixture.bundle()
+            fixture.manifest(pr_body=agent_body)
+            check = fixture.run()
+            self.assertEqual(check.verdict, "proposed", check.reasons)
+            self.assertTrue(
+                check.pr_body.startswith(f"Closes #{ISSUE}\n\n"), check.pr_body
+            )
+
     def test_workflow_change_flags_permission(self) -> None:
         """Touching a workflow file sets ``needs_workflows``."""
         self.fixture.commit(

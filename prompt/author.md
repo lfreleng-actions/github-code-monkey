@@ -55,9 +55,10 @@ part and note it in your manifest reason.
 5. **Workflow facts the guidance cannot know:**
    - *Signing.* Commit with `git commit -s` and no `-S`: this runner
      has no signing key. The workflow replays your commits through
-     the GitHub API, which signs them, and appends the
-     `Co-authored-by` and final `Signed-off-by` trailers for the real
-     identities. Your git identity is already set; do not change it.
+     the GitHub API, which signs them, and replaces every `*-by`
+     trailer with the `Co-authored-by` and final `Signed-off-by`
+     trailers for the real identities. Your git identity is already
+     set; do not change it.
    - *Replay limits.* The API cannot set an executable bit, create a
      symlink or change a file's mode, and takes at most 100 file
      changes per commit. Use at most five commits and keep the total

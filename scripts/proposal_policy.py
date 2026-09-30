@@ -231,29 +231,20 @@ def coauthor_for(model: str, mapping: dict[str, Any]) -> str:
     raise PublishError(f"no co-author mapping for model {model!r}")
 
 
-def trailer_address(line: str) -> str | None:
-    """The bracketed address of a trailer line, lower-cased, if it has one."""
-    found = re.search(r"<([^<>]+)>\s*$", line)
-    return found.group(1).strip().lower() if found else None
+# A trailer whose key ends in -by (Signed-off-by, Co-authored-by,
+# Reviewed-by and the like) makes a claim about a person.
+IDENTITY_TRAILER_RE = re.compile(r"^[A-Za-z][A-Za-z-]*-by:", re.I)
 
 
 def compose_trailers(trailers: list[str], identity: Identity) -> list[str]:
     """Close the block with the assistant's co-author and the bot's sign-off.
 
-    An agent-written co-author at the assistant's address gives way to
-    the configured identity, so no display name can stand in for it;
-    git compares trailer keys without regard to case, and so does this.
+    The proposal is untrusted and no person takes part in a session,
+    so every agent-written trailer that names someone goes: a signed
+    commit must not credit a human, or claim their DCO certification,
+    on the agent's word. Trailers that name no one stay in order.
     """
-    address = trailer_address(identity.coauthor)
-    kept = [
-        line
-        for line in trailers
-        if line.strip() != identity.sign_off
-        and not (
-            line.lower().startswith("co-authored-by:")
-            and trailer_address(line) == address
-        )
-    ]
+    kept = [line for line in trailers if not IDENTITY_TRAILER_RE.match(line)]
     kept.append(f"Co-authored-by: {identity.coauthor}")
     kept.append(identity.sign_off)
     return kept

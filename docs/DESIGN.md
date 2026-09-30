@@ -243,9 +243,11 @@ its tree diff and message rather than pushing the agent's objects.
 Consequences the implementation has to handle:
 
 - **Message composition.** The publisher takes the subject and body
-  from the agent's commit, appends the `Co-authored-by` trailer for
-  the **assistant**, Copilot, whichever model served it (§10.3),
-  replacing any agent-written trailer at that address, then
+  from the agent's commit, drops every agent-written trailer that
+  names a person (any `*-by` key: no human takes part in a session,
+  and a signed commit must not claim one did), then appends the
+  `Co-authored-by` trailer for the **assistant**, Copilot, whichever
+  model served it (§10.3), and
   `Signed-off-by: <bot login>[bot] <id+login[bot]@users.noreply.github.com>`.
   It rejects a subject over the repository's `.gitlint` limit or
   lacking a capitalised Conventional Commit type.

@@ -344,7 +344,6 @@ class ComposeTrailersTest(unittest.TestCase):
             policy.compose_trailers([COAUTHOR], IDENTITY), [COAUTHOR, SIGN_OFF]
         )
 
-    @unittest.expectedFailure
     def test_any_agent_identity_trailer_is_dropped(self) -> None:
         """No agent-written *-by trailer survives; only the canonical pair."""
         for claim in (
@@ -375,7 +374,6 @@ class ComposeTrailersTest(unittest.TestCase):
             ["Issue-ID: X-1", COAUTHOR, SIGN_OFF],
         )
 
-    @unittest.expectedFailure
     def test_other_trailers_preserved(self) -> None:
         """Trailers that name no one survive in order; claims about people go."""
         other = "Signed-off-by: Human <human@example.com>"

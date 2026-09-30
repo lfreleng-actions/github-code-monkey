@@ -514,6 +514,17 @@ class RunCheckOutcomeTest(GitCase):
         self.assertEqual(check.verdict, "rejected")
         self.assertIn("not recognised", check.reasons[0])
 
+    @unittest.expectedFailure
+    def test_unsupported_schema_rejected(self) -> None:
+        """A manifest in any schema but the supported one is a rejection."""
+        for schema in (None, 2, "1", True, 1.0):
+            self.fixture.manifest(outcome="abstain", reason="no", schema=schema)
+            check = self.fixture.run()
+            self.assertEqual(check.verdict, "rejected", schema)
+            self.assertIn("schema", check.reasons[0])
+        self.fixture.manifest(outcome="abstain", reason="no")
+        self.assertEqual(self.fixture.run().verdict, "abstain")
+
     def test_missing_or_malformed_manifest_is_a_rejection(self) -> None:
         """Manifest problems are agent output, so they become a typed verdict."""
         check = self.fixture.run()

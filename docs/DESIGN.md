@@ -1164,3 +1164,80 @@ publish.py report --results DIR --output-md PATH --output-json PATH
 `GH_TOKEN`. Everything else runs offline. A verdict other than
 `proposed` is data, not an error: the scripts exit non-zero for
 operational failures alone.
+
+## 19. Activity Log and Blockers
+
+Status: **designed, not built.** The bot keeps one open issue in
+this repository, titled `Code Monkey activity log` and labelled
+`code-monkey-log`, as its record and as memory between runs. The
+selector finds it by label *and* by the bot as its author, so a
+human-opened issue with the same label cannot stand in for it.
+
+### 19.1 What it records
+
+Each live run adds one comment, written by the trusted report job,
+covering:
+
+- pull requests the run raised, and branches it pushed without a
+  pull request (`branches` mode, or a publish that stopped short);
+- pull requests the bot raised earlier that a human has since
+  reviewed, merged or closed, and the issues those merges closed;
+- issues the bot itself opened, such as the human follow-up an
+  `INFO` banner describes;
+- interrupted work: `author-failed` and `publish-failed` results,
+  and abstentions whose reason says the issue needs more iteration;
+- which open issues a blocker held back, and the blocker's reason.
+
+The issue body holds the current state, rewritten each run: open
+bot pull requests with their review state, work in fork branches
+(§4.3) that has no pull request yet, the latest note per issue, and
+the blockers below. The comments are the history; the body is what
+the next run reads.
+
+### 19.2 Blockers
+
+Linting tool releases, and issues or releases in upstream projects,
+sometimes block a class of work until something outside the estate
+changes. Maintainers list those in the body, between two markers the
+bot preserves when it rewrites everything else:
+
+```yaml
+# code-monkey:blockers
+- scope: "repo:sigul-docker-k8s"
+  reason: "Waiting on upstream sigul 1.3 packaging"
+  tracking: "https://pagure.io/sigul/issue/123"
+- scope: "category:ci"
+  reason: "actionlint 1.7.13 rejects the \$/ self-repository syntax"
+  tracking: "https://github.com/rhysd/actionlint/issues/711"
+- scope: "issue:lfreleng-actions/java-workflows#47"
+  reason: "Needs the Maven 4 release"
+  tracking: "https://github.com/apache/maven/releases"
+```
+
+A scope names a repository, a category (§6), a label, or one issue.
+The selector skips every open issue a blocker matches, counts it
+under `blocked`, and the run's comment says what each blocker held
+back. The selector reads blockers from the body alone: the body is
+editable by maintainers and the bot, while anyone can comment. A
+malformed block fails the select job instead of the selector
+ignoring it, so a typo cannot release blocked work unnoticed.
+
+### 19.3 Notes the agent leaves itself
+
+The manifest gains an optional `notes` field for what a later
+session should know: what the agent tried, what failed, what it
+would do next. The publisher bounds it to 2,000 characters and
+flattens it like a reason (§8 step 8). The report job files it in
+the body against the issue, replacing any earlier note. When the
+selector next chooses that issue it adds the note to the packet,
+marked as an earlier session's notes; the prompt treats it as data,
+the same as issue text, since it descends from issue text.
+
+### 19.4 Credentials and modes
+
+The report job mints a token for this repository alone with Issues:
+write, which the App already holds; the select job reads the log
+with its existing read token, scoped to include this repository. The
+author job never touches the log. Live runs write the log; dry runs
+put the same content in the step summary and leave the issue alone,
+but still honour its blockers.

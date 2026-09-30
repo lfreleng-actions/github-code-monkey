@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import time
 import unittest
@@ -302,6 +303,22 @@ class CoauthorForTest(unittest.TestCase):
         """A malformed mapping value is skipped rather than returned."""
         with self.assertRaises(policy.PublishError):
             policy.coauthor_for("broken-1", self.MAPPING)
+
+
+class ShippedCoauthorsTest(unittest.TestCase):
+    """``config/coauthors.json`` credits the assistant, not its model."""
+
+    COPILOT = "Copilot <223556219+Copilot@users.noreply.github.com>"
+
+    @unittest.expectedFailure
+    def test_every_model_is_credited_to_copilot(self) -> None:
+        """Organisation guidance: Copilot served by Claude is Copilot."""
+        path = Path(__file__).resolve().parents[1] / "config" / "coauthors.json"
+        mapping = json.loads(path.read_text(encoding="utf-8"))
+        self.assertTrue(mapping)
+        self.assertEqual(set(mapping.values()), {self.COPILOT})
+        for model in ("claude-opus-5.5", "claude-fable-5.1", "gpt-6-astra"):
+            self.assertEqual(policy.coauthor_for(model, mapping), self.COPILOT)
 
 
 class ComposeTrailersTest(unittest.TestCase):

@@ -196,7 +196,6 @@ class FetchTest(unittest.TestCase):
         ):
             fetcher.download("o/r", 5, Path(holder) / "z.zip")
 
-    @unittest.expectedFailure
     def test_stalled_download_is_killed_at_the_deadline(self) -> None:
         """A gh process that never writes cannot outlive the timeout."""
         real_popen = subprocess.Popen

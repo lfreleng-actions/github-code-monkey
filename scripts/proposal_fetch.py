@@ -22,6 +22,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import zipfile
 from pathlib import Path
 from typing import Any, cast
@@ -74,8 +75,9 @@ def find_artifact(repository: str, run_id: str, name: str) -> tuple[int, int]:
 
 
 def download(repository: str, artifact_id: int, target: Path) -> None:
-    """Stream the zip to ``target``, stopping past ZIP_LIMIT."""
+    """Stream the zip to ``target``, stopping past ZIP_LIMIT or the deadline."""
     written = 0
+    expired = threading.Event()
     with target.open("wb") as sink:
         proc = subprocess.Popen(
             ["gh", "api", f"repos/{repository}/actions/artifacts/{artifact_id}/zip"],
@@ -86,6 +88,15 @@ def download(repository: str, artifact_id: int, target: Path) -> None:
         if stdout is None:
             proc.kill()
             raise github.GitHubError("could not read the artifact download")
+
+        def expire() -> None:
+            expired.set()
+            proc.kill()
+
+        # A read blocks until gh writes or exits, so no check between
+        # reads can enforce a deadline; killing gh ends the read instead.
+        timer = threading.Timer(TIMEOUT_SECONDS, expire)
+        timer.start()
         try:
             while True:
                 chunk = stdout.read(CHUNK)
@@ -101,7 +112,13 @@ def download(repository: str, artifact_id: int, target: Path) -> None:
             raise
         finally:
             stdout.close()
-            proc.wait(timeout=TIMEOUT_SECONDS)
+            # Still under the timer, so this wait is bounded too.
+            proc.wait()
+            timer.cancel()
+    if expired.is_set():
+        raise github.GitHubError(
+            f"artifact download timed out after {TIMEOUT_SECONDS} seconds"
+        )
     if proc.returncode != 0:
         raise github.GitHubError(
             f"artifact download failed (gh exit {proc.returncode})"

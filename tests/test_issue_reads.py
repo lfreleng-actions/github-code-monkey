@@ -340,6 +340,13 @@ class HasOpenLinkedPrTest(ReadsCase):
                 gql.call_args.args[1], {"owner": "org", "name": "repo", "number": 9}
             )
 
+    @unittest.expectedFailure
+    def test_query_is_marked_repeatable(self) -> None:
+        """The read-only query opts in to transient retries."""
+        with patch.object(github, "graphql", return_value=self.reply(1)) as gql:
+            reads.has_open_linked_pr("org/repo", 9)
+        self.assertIs(gql.call_args.kwargs.get("read"), True)
+
     def test_missing_data_raises(self) -> None:
         """A reply without the references object is an error, not False."""
         for data in ({}, {"repository": None}, {"repository": {"issue": None}}):
@@ -845,6 +852,22 @@ class RunGhRetryTest(unittest.TestCase):
             ):
                 github.run_gh(args)
             self.assertEqual(once.call_count, 1)
+
+    @unittest.expectedFailure
+    def test_graphql_query_retries_when_marked_read(self) -> None:
+        """A caller-declared read query retries a 502; the default does not."""
+        error = github.GitHubError("gh: Server Error (HTTP 502)")
+        with patch.object(
+            github, "run_once", side_effect=[error, '{"data": {"ok": 1}}']
+        ) as once:
+            self.assertEqual(github.graphql("query", {}, read=True), {"ok": 1})
+        self.assertEqual(once.call_count, 2)
+        with (
+            patch.object(github, "run_once", side_effect=error) as once,
+            self.assertRaises(github.GitHubError),
+        ):
+            github.graphql("mutation", {})
+        self.assertEqual(once.call_count, 1)
 
 
 class GitHubErrorTest(unittest.TestCase):

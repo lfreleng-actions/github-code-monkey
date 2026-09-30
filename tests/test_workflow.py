@@ -621,7 +621,8 @@ class InterfaceContracts(ReusableWorkflowCase):
                 "mode",
                 "dry_run",
                 "model",
-                "max_issues",
+                "max_pull_requests",
+                "categories",
                 "max_runtime_minutes",
                 "max_concurrent_agents",
                 "allow_subagents",
@@ -653,8 +654,9 @@ class InterfaceContracts(ReusableWorkflowCase):
         expected: dict[str, object] = {
             "dry_run": True,
             "mode": "pull-requests",
-            "model": "claude-opus-5",
-            "max_issues": "10",
+            "model": "claude-opus-5.5",
+            "max_pull_requests": "10",
+            "categories": "all",
             "max_runtime_minutes": "180",
             "max_concurrent_agents": "10",
             "allow_subagents": True,
@@ -693,9 +695,9 @@ class CronCallerContracts(WorkflowCase):
         self.assertEqual(model["type"], "choice")
         self.assertEqual(
             model["options"],
-            ["Claude Opus 5", "Claude Fable 5.1", "Claude Sonnet 5", "GPT-6 Astra"],
+            ["Claude Opus 5.5", "Claude Fable 5.1", "Claude Sonnet 5.5", "GPT-6 Astra"],
         )
-        self.assertEqual(model["default"], "Claude Opus 5")
+        self.assertEqual(model["default"], "Claude Opus 5.5")
 
         mode = inputs["mode"]
         self.assertEqual(mode["type"], "choice")
@@ -703,7 +705,7 @@ class CronCallerContracts(WorkflowCase):
         self.assertEqual(mode["default"], "pull-requests")
 
         defaults: dict[str, object] = {
-            "max_issues": "10",
+            "max_pull_requests": "10",
             "max_runtime_minutes": "180",
             "max_concurrent_agents": "10",
             "allow_subagents": True,
@@ -712,22 +714,44 @@ class CronCallerContracts(WorkflowCase):
             "load_repo_skills": False,
             "repositories": "",
         }
+        for name in (
+            "bugs",
+            "features",
+            "docs",
+            "ci",
+            "code_quality",
+            "refactor",
+            "performance",
+            "other",
+        ):
+            defaults[name] = True
         for name, default in defaults.items():
             with self.subTest(input=name):
                 actual: object = inputs[name]["default"]
                 self.assertIs(type(actual), type(default))
                 self.assertEqual(actual, default)
+        # GitHub caps a dispatch form at 25 inputs.
+        self.assertLessEqual(len(inputs), 25)
+
+    def test_category_booleans_build_the_list(self) -> None:
+        """Each form boolean feeds the list; a schedule's empty inputs enable all."""
+        step = self.step("options", "categories")
+        script = squash(str(step["run"]))
+        env = cast(dict[str, Any], step["env"])
+        self.assertEqual(len(env), 8)
+        self.assertIn('if [ "$2" != false ]', script)
+        self.assertIn("::error::Enable at least one issue category", script)
 
     def test_model_display_names_map_to_identifiers(self) -> None:
         """Each form choice resolves to a CLI identifier; anything else fails."""
-        script = str(self.step("model", "map")["run"])
+        script = str(self.step("options", "map")["run"])
         arms = dict(re.findall(r"'([^']+)'\) id='([^']+)' ;;", script))
         self.assertEqual(
             arms,
             {
-                "Claude Opus 5": "claude-opus-5",
+                "Claude Opus 5.5": "claude-opus-5.5",
                 "Claude Fable 5.1": "claude-fable-5.1",
-                "Claude Sonnet 5": "claude-sonnet-5",
+                "Claude Sonnet 5.5": "claude-sonnet-5.5",
                 "GPT-6 Astra": "gpt-6-astra",
             },
         )
@@ -738,7 +762,8 @@ class CronCallerContracts(WorkflowCase):
         job = self.jobs["code-monkey"]
         self.assertEqual(job["uses"], REUSABLE_CALL)
         with_ = cast(dict[str, Any], job["with"])
-        self.assert_expression(with_["model"], "needs.model.outputs.id")
+        self.assert_expression(with_["model"], "needs.options.outputs.model")
+        self.assert_expression(with_["categories"], "needs.options.outputs.categories")
         self.assert_expression(
             with_["dry_run"],
             "github.event_name != 'workflow_dispatch' || inputs.dry_run",

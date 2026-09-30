@@ -202,7 +202,7 @@ class Fixture:
             "generated_at": "2026-09-18T00:00:00Z",
             "mode": "pull-requests",
             "dry_run": False,
-            "model": "claude-opus-5",
+            "model": "claude-opus-5.5",
             "bot": {"login": BOT_LOGIN, "email": BOT_EMAIL, "placeholder": False},
             "guidance": {},
             "candidates_seen": 1,
@@ -298,7 +298,7 @@ class RunCheckProposedTest(GitCase):
         self.assertEqual(addition["size"], len(fixed.encode("utf-8")))
         self.assertEqual(check.pr_title, "Fix(readme): Correct typo")
         provenance = policy.provenance_block(
-            model="claude-opus-5",
+            model="claude-opus-5.5",
             run_url=RUN_URL,
             issue_url=ISSUE_URL,
             base_sha=self.fixture.base_sha,
@@ -918,7 +918,10 @@ class SelectionIdentityTest(unittest.TestCase):
     def test_identity(self) -> None:
         """Model prefix and bot fields build the identity."""
         identity = checks.selection_identity(
-            {"model": "claude-opus-5", "bot": {"login": BOT_LOGIN, "email": BOT_EMAIL}},
+            {
+                "model": "claude-opus-5.5",
+                "bot": {"login": BOT_LOGIN, "email": BOT_EMAIL},
+            },
             COAUTHORS,
         )
         self.assertEqual(identity.coauthor, "Claude <noreply@anthropic.com>")
@@ -927,7 +930,7 @@ class SelectionIdentityTest(unittest.TestCase):
     def test_missing_bot(self) -> None:
         """A selection without a bot object is an error."""
         with self.assertRaises(policy.PublishError):
-            checks.selection_identity({"model": "claude-opus-5"}, COAUTHORS)
+            checks.selection_identity({"model": "claude-opus-5.5"}, COAUTHORS)
 
 
 class LoadJsonTest(unittest.TestCase):

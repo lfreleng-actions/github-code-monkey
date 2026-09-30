@@ -285,7 +285,7 @@ class CoauthorForTest(unittest.TestCase):
     def test_prefix_mapping(self) -> None:
         """The first matching prefix wins."""
         self.assertEqual(
-            policy.coauthor_for("claude-opus-5", self.MAPPING),
+            policy.coauthor_for("claude-opus-5.5", self.MAPPING),
             "Claude <noreply@anthropic.com>",
         )
         self.assertEqual(
@@ -595,7 +595,7 @@ class ProvenanceBlockTest(unittest.TestCase):
     def test_contents(self) -> None:
         """Issue, model, run, base and the commands table appear."""
         block = policy.provenance_block(
-            model="claude-opus-5",
+            model="claude-opus-5.5",
             run_url="https://example/run/1",
             issue_url="https://github.com/o/r/issues/7",
             base_sha="d" * 40,
@@ -605,7 +605,7 @@ class ProvenanceBlockTest(unittest.TestCase):
             ],
         )
         self.assertIn("- Issue: https://github.com/o/r/issues/7", block)
-        self.assertIn("- Model: `claude-opus-5` via GitHub Copilot CLI", block)
+        self.assertIn("- Model: `claude-opus-5.5` via GitHub Copilot CLI", block)
         self.assertIn("- Run: https://example/run/1", block)
         self.assertIn(f"- Base: `{'d' * 40}`", block)
         self.assertIn("| Command | Exit |", block)

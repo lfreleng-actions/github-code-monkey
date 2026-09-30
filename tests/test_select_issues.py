@@ -21,6 +21,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 github = import_module("monkey_github")
 reads = import_module("issue_reads")
 select = import_module("select_issues")
+categories = import_module("issue_categories")
+
+ALL = frozenset(categories.ALL_CATEGORIES)
+outputs = import_module("selection_outputs")
 
 SHA_A = "a" * 40
 SHA_B = "b" * 40
@@ -99,6 +103,7 @@ def fresh_skipped() -> dict[str, int]:
             "repository",
             "label",
             "no_type",
+            "category",
             "assigned",
             "attempted",
             "linked_pr",
@@ -145,22 +150,22 @@ class ParseRepositoriesTest(unittest.TestCase):
                 select.parse_repositories(bad)
 
 
-class ParseMaxIssuesTest(unittest.TestCase):
-    """``parse_max_issues`` accepts non-negative integers only."""
+class ParseMaxPullRequestsTest(unittest.TestCase):
+    """``parse_max_pull_requests`` accepts non-negative integers only."""
 
     def test_zero_lifts_cap(self) -> None:
         """Zero is valid and means unbounded."""
-        self.assertEqual(select.parse_max_issues("0"), 0)
+        self.assertEqual(select.parse_max_pull_requests("0"), 0)
 
     def test_positive(self) -> None:
         """A positive integer, with surrounding whitespace, parses."""
-        self.assertEqual(select.parse_max_issues(" 10 "), 10)
+        self.assertEqual(select.parse_max_pull_requests(" 10 "), 10)
 
     def test_rejects_invalid(self) -> None:
         """Negatives, words and empty strings are refused."""
         for bad in ("-1", "ten", "", "1.5"):
             with self.subTest(bad=bad), self.assertRaises(reads.SelectionError):
-                select.parse_max_issues(bad)
+                select.parse_max_pull_requests(bad)
 
 
 class LoadExclusionsTest(unittest.TestCase):
@@ -390,7 +395,9 @@ class EnrichTest(NoSubprocessCase):
             return details[number]
 
         with patch.object(reads, "issue_details", side_effect=lookup) as read:
-            enriched = select.enrich(base, include_assigned=False, skipped=skipped)
+            enriched = select.enrich(
+                base, include_assigned=False, enabled=ALL, skipped=skipped
+            )
         self.assertEqual(read.call_count, 4)
         self.assertEqual([c["number"] for c in enriched], [4])
         self.assertEqual(enriched[0]["priority"], "Low")
@@ -401,7 +408,9 @@ class EnrichTest(NoSubprocessCase):
 
         skipped = fresh_skipped()
         with patch.object(reads, "issue_details", side_effect=lookup):
-            enriched = select.enrich(base, include_assigned=True, skipped=skipped)
+            enriched = select.enrich(
+                base, include_assigned=True, enabled=ALL, skipped=skipped
+            )
         self.assertEqual([c["number"] for c in enriched], [2, 4])
         self.assertEqual(skipped["assigned"], 0)
 
@@ -426,7 +435,7 @@ class ChooseTest(NoSubprocessCase):
         """The second issue of a repository is dropped; the chosen entry is shaped."""
         ranked = [candidate("alpha", 3), candidate("alpha", 4), candidate("beta", 5)]
         skipped = fresh_skipped()
-        chosen = select.choose(ranked, max_issues=10, skipped=skipped)
+        chosen = select.choose(ranked, max_pull_requests=10, skipped=skipped)
         self.assertEqual([c["number"] for c in chosen], [3, 5])
         self.assertEqual(skipped["one_per_repo"], 1)
         first = chosen[0]
@@ -443,12 +452,12 @@ class ChooseTest(NoSubprocessCase):
         """Survivors beyond the cap count as ``cap``; zero lifts the cap."""
         ranked = [candidate(f"r{i}", i) for i in range(1, 6)]
         skipped = fresh_skipped()
-        chosen = select.choose(ranked, max_issues=2, skipped=skipped)
+        chosen = select.choose(ranked, max_pull_requests=2, skipped=skipped)
         self.assertEqual(len(chosen), 2)
         self.assertEqual(skipped["cap"], 3)
 
         skipped = fresh_skipped()
-        chosen = select.choose(ranked, max_issues=0, skipped=skipped)
+        chosen = select.choose(ranked, max_pull_requests=0, skipped=skipped)
         self.assertEqual(len(chosen), 5)
         self.assertEqual(skipped["cap"], 0)
 
@@ -456,9 +465,11 @@ class ChooseTest(NoSubprocessCase):
         """Zero and oversized caps both stop at the Actions matrix limit."""
         ranked = [candidate(f"r{i}", i) for i in range(1, select.MATRIX_LIMIT + 4)]
         for requested in (0, select.MATRIX_LIMIT + 50):
-            with self.subTest(max_issues=requested):
+            with self.subTest(max_pull_requests=requested):
                 skipped = fresh_skipped()
-                chosen = select.choose(ranked, max_issues=requested, skipped=skipped)
+                chosen = select.choose(
+                    ranked, max_pull_requests=requested, skipped=skipped
+                )
                 self.assertEqual(len(chosen), select.MATRIX_LIMIT)
                 self.assertEqual(skipped["cap"], 3)
 
@@ -470,7 +481,7 @@ class ChooseTest(NoSubprocessCase):
         ranked = [big, small, candidate("third", 3)]
         skipped = fresh_skipped()
         with patch.object(select, "MAX_SELECTION_BYTES", 1500):
-            chosen = select.choose(ranked, max_issues=0, skipped=skipped)
+            chosen = select.choose(ranked, max_pull_requests=0, skipped=skipped)
         # The first entry fits alone; the second would push past the budget
         # and the third is refused without further reads.
         self.assertEqual([c["number"] for c in chosen], [1])
@@ -482,7 +493,7 @@ class ChooseTest(NoSubprocessCase):
         self.linked.side_effect = linked_issue_two
         ranked = [candidate("a", 1), candidate("b", 2), candidate("c", 3)]
         skipped = fresh_skipped()
-        chosen = select.choose(ranked, max_issues=0, skipped=skipped)
+        chosen = select.choose(ranked, max_pull_requests=0, skipped=skipped)
         self.assertEqual([c["number"] for c in chosen], [3])
         self.assertEqual(skipped["attempted"], 1)
         self.assertEqual(skipped["linked_pr"], 1)
@@ -491,7 +502,7 @@ class ChooseTest(NoSubprocessCase):
         """A skipped attempt does not claim the repository slot."""
         self.prior.side_effect = attempted_issue_one
         ranked = [candidate("a", 1), candidate("a", 2)]
-        chosen = select.choose(ranked, max_issues=0, skipped=fresh_skipped())
+        chosen = select.choose(ranked, max_pull_requests=0, skipped=fresh_skipped())
         self.assertEqual([c["number"] for c in chosen], [2])
 
 
@@ -503,7 +514,9 @@ def sample_selection(issues: list[dict[str, Any]]) -> dict[str, Any]:
         "generated_at": "2026-09-18T00:00:00Z",
         "mode": "pull-requests",
         "dry_run": True,
-        "model": "claude-opus-5",
+        "model": "claude-opus-5.5",
+        "categories": sorted(categories.ALL_CATEGORIES),
+        "max_pull_requests": 10,
         "bot": {"login": "code-monkey[bot]", "email": "x@example", "placeholder": True},
         "guidance": {},
         "exclusions": ["beta", "gamma"],
@@ -512,6 +525,77 @@ def sample_selection(issues: list[dict[str, Any]]) -> dict[str, Any]:
         "skipped": fresh_skipped(),
         "issues": issues,
     }
+
+
+class CategoryFilterTest(NoSubprocessCase):
+    """``enrich`` keeps an issue when any of its categories is enabled."""
+
+    def run_enrich(
+        self, labels: list[str], issue_type: str | None, enabled: frozenset[str]
+    ) -> tuple[list[dict[str, Any]], dict[str, int]]:
+        """Enrich one candidate carrying the given labels and Type."""
+        details: dict[str, Any] = {
+            "title": "t",
+            "body": "",
+            "labels": labels,
+            "type": issue_type,
+            "assignees": [],
+            "priority": None,
+        }
+        base = [{k: v for k, v in candidate("r", 1).items() if k not in details}]
+        skipped = fresh_skipped()
+        with patch.object(reads, "issue_details", return_value=details):
+            kept = select.enrich(
+                base, include_assigned=False, enabled=enabled, skipped=skipped
+            )
+        return kept, skipped
+
+    def test_docs_only(self) -> None:
+        """Only documentation issues pass a docs-only run; others count as skipped."""
+        docs = frozenset({"docs"})
+        kept, _ = self.run_enrich(["documentation"], "Task", docs)
+        self.assertEqual(kept[0]["categories"], ["docs"])
+        kept, skipped = self.run_enrich(["bug"], "Bug", docs)
+        self.assertEqual(kept, [])
+        self.assertEqual(skipped["category"], 1)
+
+    def test_type_places_bugs_and_features(self) -> None:
+        """A Bug Type counts as a bug even without the label."""
+        kept, _ = self.run_enrich([], "Bug", frozenset({"bugs"}))
+        self.assertEqual(kept[0]["categories"], ["bugs"])
+
+    def test_any_enabled_category_is_enough(self) -> None:
+        """An issue in two categories passes when either is enabled."""
+        kept, _ = self.run_enrich(["CI", "code-quality"], "Task", frozenset({"ci"}))
+        self.assertEqual(kept[0]["categories"], ["ci", "code_quality"])
+
+    def test_uncategorised_issues_are_other(self) -> None:
+        """No category label and no bug/feature Type means ``other``."""
+        kept, _ = self.run_enrich([], "Task", frozenset({"other"}))
+        self.assertEqual(kept[0]["categories"], ["other"])
+        kept, _ = self.run_enrich([], "Task", frozenset({"bugs"}))
+        self.assertEqual(kept, [])
+
+
+class ParseCategoriesTest(unittest.TestCase):
+    """``parse_categories`` reads the list the caller passes."""
+
+    def test_all_and_lists(self) -> None:
+        """``all`` expands; commas and spaces both separate names."""
+        self.assertEqual(categories.parse_categories("all"), ALL)
+        self.assertEqual(
+            categories.parse_categories("docs, ci code_quality"),
+            frozenset({"docs", "ci", "code_quality"}),
+        )
+
+    def test_rejects_empty_and_unknown(self) -> None:
+        """Nothing selected, or an unknown name, is an error."""
+        for bad in ("", " , ", "docs,security"):
+            with (
+                self.subTest(bad=bad),
+                self.assertRaises(categories.CategoryError),
+            ):
+                categories.parse_categories(bad)
 
 
 class WriteOutputsTest(unittest.TestCase):
@@ -535,7 +619,7 @@ class WriteOutputsTest(unittest.TestCase):
         guidance = b"# Guidance\n\xe2\x9c\x93\n"
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "nested" / "out"
-            select.write_outputs(out, selection, guidance)
+            outputs.write_outputs(out, selection, guidance)
             written = json.loads((out / "selection.json").read_text(encoding="utf-8"))
             self.assertEqual(written, selection)
             matrix = json.loads((out / "matrix.json").read_text(encoding="utf-8"))
@@ -571,11 +655,11 @@ class WriteOutputsTest(unittest.TestCase):
 
     def test_empty_summary(self) -> None:
         """No issues renders the placeholder row and an em dash for no priority."""
-        summary = select.summary_markdown(sample_selection([]))
+        summary = outputs.summary_markdown(sample_selection([]))
         self.assertIn("| — | — | — | nothing to work |", summary)
         self.assertIn("selected: 0.", summary)
         issue = {**self.chosen_issue(), "priority": None}
-        summary = select.summary_markdown(sample_selection([issue]))
+        summary = outputs.summary_markdown(sample_selection([issue]))
         self.assertIn("| — | Bug |", summary)
 
 
@@ -637,11 +721,11 @@ class MainTest(NoSubprocessCase):
                         "--mode",
                         "pull-requests",
                         "--model",
-                        "claude-opus-5",
+                        "claude-opus-5.5",
                         "--dry-run",
                         "--guidance-repository",
                         "org/.github",
-                        "--max-issues",
+                        "--max-pull-requests",
                         "5",
                         "--exclude-repos",
                         "gamma",

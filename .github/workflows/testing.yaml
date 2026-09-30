@@ -13,8 +13,8 @@ on:
         description: 'Repositories for the manual dry-run (commas/spaces)'
         type: string
         default: ''
-      max_issues:
-        description: 'Issues to attempt in the manual dry-run'
+      max_pull_requests:
+        description: 'Pull requests to attempt in the manual dry-run'
         type: string
         default: '1'
 
@@ -43,7 +43,7 @@ jobs:
       org: "${{ github.repository_owner }}"
       mode: 'select'
       dry_run: true
-      max_issues: '3'
+      max_pull_requests: '3'
       # Block mode with the organisation allow-list, as the scheduled
       # caller runs, so a pull request proves the trusted jobs' egress.
       egress_policy: 'block'
@@ -66,8 +66,8 @@ jobs:
       org: "${{ github.repository_owner }}"
       mode: 'pull-requests'
       dry_run: true
-      model: 'claude-sonnet-5'
-      max_issues: "${{ inputs.max_issues || '1' }}"
+      model: 'claude-sonnet-5.5'
+      max_pull_requests: "${{ inputs.max_pull_requests || '1' }}"
       max_runtime_minutes: '60'
       max_concurrent_agents: '2'
       repositories: "${{ inputs.repositories || '' }}"

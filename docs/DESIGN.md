@@ -324,6 +324,29 @@ the exclusion list and is not `.github` (unless
 with no Priority sort last. Within a priority, older `created_at`
 first.
 
+**Categories.** A run works an issue when the caller enables any of
+its categories. Categories follow the labels triage applies, with the issue
+Type as a second signal for bugs and features:
+
+<!-- markdownlint-disable MD013 -->
+
+| Category | Label | Or Type |
+| -------- | ----- | ------- |
+| `bugs` | `bug` | Bug |
+| `features` | `feature` | Feature |
+| `docs` | `documentation` | |
+| `ci` | `CI` | |
+| `code_quality` | `code-quality` | |
+| `refactor` | `refactor` | |
+| `performance` | `performance` | |
+| `other` | none of the above | |
+
+<!-- markdownlint-enable MD013 -->
+
+Security, Scorecard and `aislop` work arrives with the security
+report (§16): those findings are not issues triage labels, so a
+category switch for them would select nothing until then.
+
 **One issue per repository.** After ranking, the selector keeps the
 first issue seen for each repository and drops the rest. Two agents
 in one repository would race on `main` and on the toolchain cache;
@@ -331,7 +354,9 @@ one agent working two issues would juggle branches and widen the
 blast radius of a mistake. The rest of that repository's backlog
 waits for the next run.
 
-**Cap.** The first `max_issues` survivors form the selection. `0`
+**Cap.** The first `max_pull_requests` survivors form the selection;
+each yields at most one pull request, so the value bounds the pull
+requests a run can raise. `0`
 lifts the cap as far as the Actions matrix limit of 256 jobs, which
 the selector applies itself so a broad run degrades to a bounded
 selection instead of failing at matrix expansion. A second bound
@@ -607,8 +632,9 @@ For each selected issue:
 | `org` | string | required | Target owner |
 | `mode` | string | `pull-requests` | `select`, `branches`, `pull-requests` |
 | `dry_run` | boolean | `true` | Author runs; publisher writes nothing |
-| `model` | string | `claude-opus-5` | Copilot model identifier (§10.3) |
-| `max_issues` | string | `'10'` | `0` = unbounded |
+| `model` | string | `claude-opus-5.5` | Copilot model identifier (§10.3) |
+| `max_pull_requests` | string | `'10'` | `0` = up to the matrix limit |
+| `categories` | string | `'all'` | `all`, or a list from §6 |
 | `max_runtime_minutes` | string | `'180'` | Per agent |
 | `max_concurrent_agents` | string | `'10'` | 1–30, matrix `max-parallel` |
 | `allow_subagents` | boolean | `true` | §7.2 |
@@ -640,9 +666,9 @@ outside the stated ranges.
 | Input | Type | Default |
 | ----- | ---- | ------- |
 | `dry_run` | boolean | `true` |
-| `model` | choice | Claude Opus 5 |
+| `model` | choice | Claude Opus 5.5 |
 | `mode` | choice | `pull-requests` |
-| `max_issues` | string | `'10'` |
+| `max_pull_requests` | string | `'10'` |
 | `max_runtime_minutes` | string | `'180'` |
 | `max_concurrent_agents` | string | `'10'` |
 | `allow_subagents` | boolean | `true` |
@@ -650,15 +676,22 @@ outside the stated ranges.
 | `include_assigned` | boolean | `false` |
 | `load_repo_skills` | boolean | `false` |
 | `repositories` | string | `''` |
+| `bugs`, `features`, `docs`, `ci` | boolean | `true` |
+| `code_quality`, `refactor`, `performance`, `other` | boolean | `true` |
 
 The `model` choice shows display names and the caller maps them to
 the identifiers in §10.3. The schedule runs `pull-requests` mode
 with `dry_run: false` once §15 clears it; until then the schedule
 stays dry-run, the path triage took.
 
-`max_issues` semantics: `1` is the smallest bounded value, `0` means
-unbounded, anything else non-numeric or negative fails the select
-job.
+`max_pull_requests` semantics: `1` raises at most one pull request,
+`20` at most twenty, and `0` lifts the cap as far as the matrix
+limit; anything non-numeric or negative fails the select job. The
+eight category switches build the `categories` list: untick all but
+`docs` for a run that fixes documentation alone. A schedule passes no inputs,
+which counts as every category enabled; a dispatch with every switch
+off fails before selection. The form holds 19 inputs, within
+GitHub's limit of 25.
 
 ### 9.3 Mode and dry-run matrix
 
@@ -738,18 +771,24 @@ repository access and the author job has no other credential.
 ### 10.3 Models and the co-author trailer
 
 A check of the four identifiers below against the pinned CLI on
-18 September 2026, with the entitlement behind `COPILOT_CLI_TOKEN`,
+30 September 2026, with the entitlement behind `COPILOT_CLI_TOKEN`,
 started a session for each one. An unknown name fails at once with
 `Model "..." from --model flag is not available`, before any
 request reaches the model. An interactive `/model` shows the same
-list.
+list. The dispatch form offers the latest release of each family;
+the earlier `claude-opus-5` and `claude-sonnet-5` still resolve, so
+a caller of the reusable workflow may name them directly.
+
+<!-- markdownlint-disable MD013 -->
 
 | Display name | `--model` | `Co-authored-by` |
 | ------------ | --------- | ---------------- |
-| Claude Opus 5 (default) | `claude-opus-5` | `Claude <noreply@anthropic.com>` |
+| Claude Opus 5.5 (default) | `claude-opus-5.5` | `Claude <noreply@anthropic.com>` |
 | Claude Fable 5.1 | `claude-fable-5.1` | `Claude <noreply@anthropic.com>` |
-| Claude Sonnet 5 | `claude-sonnet-5` | `Claude <noreply@anthropic.com>` |
+| Claude Sonnet 5.5 | `claude-sonnet-5.5` | `Claude <noreply@anthropic.com>` |
 | GPT-6 Astra | `gpt-6-astra` | `ChatGPT <chatgpt@openai.com>` |
+
+<!-- markdownlint-enable MD013 -->
 
 The trailer names the model, not the harness, in line with the
 table in §6.3 of the org guidance. The mapping is by identifier
@@ -824,7 +863,9 @@ conflicts while producer artifacts survive.
 prompt/author.md                         agent prompt
 config/excluded-repos.txt                repositories to skip
 config/coauthors.json                    model prefix to trailer (§10.3)
-scripts/select_issues.py                 selection policy and outputs
+scripts/select_issues.py                 selection policy
+scripts/issue_categories.py              category switches and matching
+scripts/selection_outputs.py             selection files and summary
 scripts/issue_reads.py                   GitHub reads for selection
 scripts/monkey_github.py                 gh wrapper, REST and GraphQL
 scripts/monkey_evidence.py               bounded verified copies
@@ -848,9 +889,11 @@ write-good and `aislop` at threshold 100.
 
 ## 15. Rollout
 
-0. Meet the §4.3 prerequisites and move the publisher to the fork
-   path. No live `branches` or `pull-requests` dispatch runs before
-   that; dry-run and `select` mode need neither.
+0. Until the §4.3 fork path exists, a live `branches` or
+   `pull-requests` dispatch names its targets in `repositories` and
+   keeps to repositories whose workflows hold no secrets (a `test-*`
+   project), since the bot's branch there runs as trusted code. The
+   schedule stays dry-run; dry-run and `select` mode need neither.
 1. Land the workflow with the schedule in dry-run and
    `pull-requests` mode. Inspect diffs, messages and abstentions
    for a week of runs.
@@ -940,7 +983,7 @@ cross-checked against the trusted `selection.json`.
   "generated_at": "2026-09-18T09:02:11Z",
   "mode": "pull-requests",
   "dry_run": true,
-  "model": "claude-opus-5",
+  "model": "claude-opus-5.5",
   "bot": {
     "login": "lf-code-monkey[bot]",
     "email": "123456+lf-code-monkey[bot]@users.noreply.github.com"
@@ -1089,7 +1132,8 @@ report job merges every `result.json` into one table.
 select_issues.py --org ORG --output-dir DIR --mode MODE --model ID
     [--dry-run] [--repositories "a, b"] [--exclude-file PATH]
     [--exclude-repos "a,b"] [--include-dotgithub] [--include-assigned]
-    --max-issues N --guidance-repository O/R [--guidance-ref REF]
+    --max-pull-requests N [--categories LIST]
+    --guidance-repository O/R [--guidance-ref REF]
     [--guidance-path AGENTS.md] [--bot-slug SLUG]
 
 monkey_evidence.py verify --directory DIR --selection-sha256 HEX

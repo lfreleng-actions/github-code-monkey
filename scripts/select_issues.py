@@ -27,8 +27,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+import issue_categories as categories
 import issue_reads as reads
 import monkey_github as github
+import selection_outputs as outputs
 from issue_reads import SelectionError
 
 SCHEMA = 1
@@ -76,10 +78,12 @@ def load_exclusions(file: Path | None, override: str) -> list[str]:
     return names
 
 
-def parse_max_issues(text: str) -> int:
+def parse_max_pull_requests(text: str) -> int:
     """Accept a non-negative integer; zero lifts the cap."""
     if not re.fullmatch(r"\d+", text.strip()):
-        raise SelectionError(f"max_issues must be a non-negative integer, got {text!r}")
+        raise SelectionError(
+            f"max_pull_requests must be a non-negative integer, got {text!r}"
+        )
     return int(text)
 
 
@@ -158,7 +162,11 @@ def cheap_filter(
 
 
 def enrich(
-    candidates: list[dict[str, Any]], *, include_assigned: bool, skipped: dict[str, int]
+    candidates: list[dict[str, Any]],
+    *,
+    include_assigned: bool,
+    enabled: frozenset[str],
+    skipped: dict[str, int],
 ) -> list[dict[str, Any]]:
     """Add the per-issue reads ranking needs and drop untriaged or claimed issues."""
     enriched: list[dict[str, Any]] = []
@@ -173,17 +181,23 @@ def enrich(
         if SKIP_LABELS.intersection(details["labels"]):
             skipped["label"] += 1
             continue
-        enriched.append({**candidate, **details})
+        found = categories.categories_of(details["labels"], details["type"])
+        if not found & enabled:
+            skipped["category"] += 1
+            continue
+        enriched.append({**candidate, **details, "categories": sorted(found)})
     return enriched
 
 
 def choose(
-    ranked: list[dict[str, Any]], *, max_issues: int, skipped: dict[str, int]
+    ranked: list[dict[str, Any]], *, max_pull_requests: int, skipped: dict[str, int]
 ) -> list[dict[str, Any]]:
     """Keep one issue per repository, run the expensive checks, and cap."""
     seen: set[str] = set()
     chosen: list[dict[str, Any]] = []
-    cap = min(max_issues, MATRIX_LIMIT) if max_issues else MATRIX_LIMIT
+    # One issue yields at most one pull request, so capping the issues
+    # a run works caps the pull requests it can raise.
+    cap = min(max_pull_requests, MATRIX_LIMIT) if max_pull_requests else MATRIX_LIMIT
     used_bytes = 0
     for candidate in ranked:
         repo = str(candidate["repository"])
@@ -221,44 +235,22 @@ def choose(
     return chosen
 
 
-def summary_markdown(selection: dict[str, Any]) -> str:
-    """Render the selection for the step summary."""
-    lines = [
-        "## Issue selection",
-        "",
-        f"Mode `{selection['mode']}`, dry run `{selection['dry_run']}`, "
-        f"model `{selection['model']}`.",
-        f"Candidates seen: {selection['candidates_seen']}; "
-        f"selected: {len(selection['issues'])}.",
-        "",
-        "| Skipped because | Count |",
-        "| --- | --- |",
-    ]
-    for reason, count in sorted(cast("dict[str, int]", selection["skipped"]).items()):
-        lines.append(f"| {reason} | {count} |")
-    lines += ["", "| Issue | Priority | Type | Title |", "| --- | --- | --- | --- |"]
-    for issue in cast("list[dict[str, Any]]", selection["issues"]):
-        title = str(issue["title"]).replace("|", "\\|")
-        lines.append(
-            f"| [{issue['repo_name']}#{issue['number']}]({issue['url']}) "
-            f"| {issue['priority'] or '—'} | {issue['type']} | {title} |"
-        )
-    if not selection["issues"]:
-        lines.append("| — | — | — | nothing to work |")
-    return "\n".join(lines) + "\n"
-
-
 def build_selection(args: argparse.Namespace) -> tuple[dict[str, Any], bytes]:
     """Run the whole selection and return it with the guidance bytes."""
     explicit = parse_repositories(args.repositories)
     exclusions = set(load_exclusions(args.exclude_file, args.exclude_repos))
-    max_issues = parse_max_issues(args.max_issues)
+    max_pull_requests = parse_max_pull_requests(args.max_pull_requests)
+    try:
+        enabled = categories.parse_categories(args.categories)
+    except categories.CategoryError as exc:
+        raise SelectionError(str(exc)) from exc
     skipped: dict[str, int] = dict.fromkeys(
         (
             "pull_request",
             "repository",
             "label",
             "no_type",
+            "category",
             "assigned",
             "attempted",
             "linked_pr",
@@ -281,10 +273,13 @@ def build_selection(args: argparse.Namespace) -> tuple[dict[str, Any], bytes]:
         skipped=skipped,
     )
     enriched = enrich(
-        candidates, include_assigned=args.include_assigned, skipped=skipped
+        candidates,
+        include_assigned=args.include_assigned,
+        enabled=enabled,
+        skipped=skipped,
     )
     ranked = sorted(enriched, key=rank_key)
-    chosen = choose(ranked, max_issues=max_issues, skipped=skipped)
+    chosen = choose(ranked, max_pull_requests=max_pull_requests, skipped=skipped)
     guidance, commit = reads.fetch_guidance(
         args.guidance_repository, args.guidance_ref, args.guidance_path
     )
@@ -295,6 +290,8 @@ def build_selection(args: argparse.Namespace) -> tuple[dict[str, Any], bytes]:
         "mode": args.mode,
         "dry_run": bool(args.dry_run),
         "model": args.model,
+        "categories": sorted(enabled),
+        "max_pull_requests": max_pull_requests,
         "bot": reads.bot_identity(args.bot_slug),
         "guidance": {
             "repository": args.guidance_repository,
@@ -312,36 +309,6 @@ def build_selection(args: argparse.Namespace) -> tuple[dict[str, Any], bytes]:
     return selection, guidance
 
 
-def write_outputs(directory: Path, selection: dict[str, Any], guidance: bytes) -> None:
-    """Write every file the later jobs consume."""
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / "selection.json").write_text(
-        json.dumps(selection, indent=2, sort_keys=False) + "\n", encoding="utf-8"
-    )
-    include = [
-        {
-            "key": issue["key"],
-            "repository": issue["repository"],
-            "repo_name": issue["repo_name"],
-            "number": issue["number"],
-            "base_sha": issue["base_sha"],
-            "branch": issue["branch"],
-        }
-        for issue in cast("list[dict[str, Any]]", selection["issues"])
-    ]
-    (directory / "matrix.json").write_text(
-        json.dumps({"include": include}) + "\n", encoding="utf-8"
-    )
-    (directory / "agents.md").write_bytes(guidance)
-    (directory / "excluded-repos.txt").write_text(
-        "".join(f"{name}\n" for name in cast("list[str]", selection["exclusions"])),
-        encoding="utf-8",
-    )
-    (directory / "selection-summary.md").write_text(
-        summary_markdown(selection), encoding="utf-8"
-    )
-
-
 def build_parser() -> argparse.ArgumentParser:
     """Describe the command line."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -357,7 +324,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--exclude-repos", default="")
     parser.add_argument("--include-dotgithub", action="store_true")
     parser.add_argument("--include-assigned", action="store_true")
-    parser.add_argument("--max-issues", default="10")
+    parser.add_argument("--max-pull-requests", default="10")
+    parser.add_argument("--categories", default="all")
     parser.add_argument("--guidance-repository", required=True)
     parser.add_argument("--guidance-ref", default="main")
     parser.add_argument("--guidance-path", default="AGENTS.md")
@@ -371,7 +339,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     try:
         selection, guidance = build_selection(args)
-        write_outputs(args.output_dir, selection, guidance)
+        outputs.write_outputs(args.output_dir, selection, guidance)
     except (OSError, ValueError, SelectionError, github.GitHubError) as exc:
         message = ascii(str(exc)).replace("::", ": :").replace("##[", "# #[")
         parser.exit(1, f"select issues: {message}\n")

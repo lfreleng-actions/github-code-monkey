@@ -32,11 +32,17 @@ on:
       model:
         description: 'Copilot CLI model identifier'
         type: string
-        default: 'claude-opus-5'
-      max_issues:
-        description: 'Issues to work this run; 0 lifts the cap'
+        default: 'claude-opus-5.5'
+      max_pull_requests:
+        description: 'Pull requests to raise at most; 0 lifts the cap'
         type: string
         default: '10'
+      categories:
+        description: >-
+          Issue categories to work: all, or a list of bugs, features,
+          docs, ci, code_quality, refactor, performance, other
+        type: string
+        default: 'all'
       max_runtime_minutes:
         description: 'Wall-clock budget for each agent session'
         type: string
@@ -186,7 +192,7 @@ jobs:
         id: budget
         env:
           MODE: "${{ inputs.mode }}"
-          MAX_ISSUES: "${{ inputs.max_issues }}"
+          MAX_PRS: "${{ inputs.max_pull_requests }}"
           MAX_RUNTIME: "${{ inputs.max_runtime_minutes }}"
           MAX_AGENTS: "${{ inputs.max_concurrent_agents }}"
           MODEL: "${{ inputs.model }}"
@@ -200,8 +206,9 @@ jobs:
             *) echo "::error::mode must be select, branches or pull-requests"
                exit 1 ;;
           esac
-          [[ "$MAX_ISSUES" =~ ^[0-9]+$ ]] || {
-            echo '::error::max_issues must be a non-negative integer'; exit 1; }
+          [[ "$MAX_PRS" =~ ^[0-9]+$ ]] || {
+            echo '::error::max_pull_requests must be a non-negative integer'
+            exit 1; }
           [[ "$MAX_RUNTIME" =~ ^[1-9][0-9]*$ ]] && [ "$MAX_RUNTIME" -le 330 ] ||
             { echo '::error::max_runtime_minutes must be 1-330'; exit 1; }
           [[ "$MAX_AGENTS" =~ ^[1-9][0-9]*$ ]] && [ "$MAX_AGENTS" -le 30 ] || {
@@ -304,7 +311,8 @@ jobs:
           EXCLUDE_REPOS: "${{ inputs.exclude_repos }}"
           INCLUDE_DOTGITHUB: "${{ inputs.include_dotgithub }}"
           INCLUDE_ASSIGNED: "${{ inputs.include_assigned }}"
-          MAX_ISSUES: "${{ inputs.max_issues }}"
+          MAX_PRS: "${{ inputs.max_pull_requests }}"
+          CATEGORIES: "${{ inputs.categories }}"
           # yamllint disable-line rule:line-length
           GUIDANCE_REPOSITORY: "${{ inputs.guidance_repository || format('{0}/.github', inputs.org) }}"
           GUIDANCE_REF: "${{ inputs.guidance_ref }}"
@@ -324,7 +332,8 @@ jobs:
             --repositories "$REPOSITORIES" \
             --exclude-file monkey-assets/config/excluded-repos.txt \
             --exclude-repos "$EXCLUDE_REPOS" \
-            --max-issues "$MAX_ISSUES" \
+            --max-pull-requests "$MAX_PRS" \
+            --categories "$CATEGORIES" \
             --guidance-repository "$GUIDANCE_REPOSITORY" \
             --guidance-ref "$GUIDANCE_REF" \
             --bot-slug "$BOT_SLUG" "${extra[@]}"

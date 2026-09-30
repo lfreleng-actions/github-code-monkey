@@ -316,6 +316,40 @@ class PriorAttemptTest(ReadsCase):
             reads.prior_attempt("org/repo", "b")
 
 
+class PriorAttemptOwnerHeadTest(ReadsCase):
+    """Fork pull requests cannot crowd the bot's own out of the lookup."""
+
+    @unittest.expectedFailure
+    def test_owner_qualified_head_filters_server_side(self) -> None:
+        """The query names the target's owner, so forks never fill the page."""
+        own = [{"number": 3, "head": {"repo": {"full_name": "Org/Repo"}}}]
+        with (
+            patch.object(github, "api_page", return_value=own) as page,
+            patch.object(github, "api_object") as read,
+        ):
+            self.assertTrue(reads.prior_attempt("org/repo", "code-monkey/issue-3"))
+        read.assert_not_called()
+        endpoint = page.call_args.args[0]
+        self.assertTrue(endpoint.startswith("repos/org/repo/pulls?"), endpoint)
+        self.assertIn("head=org%3Acode-monkey%2Fissue-3", endpoint)
+        self.assertIn("state=all", endpoint)
+
+    @unittest.expectedFailure
+    def test_other_repository_head_falls_through_to_the_branch(self) -> None:
+        """A head in another repository of the owner is not an attempt."""
+        other = [{"number": 5, "head": {"repo": {"full_name": "org/other"}}}]
+        with (
+            patch.object(github, "api_page", return_value=other),
+            patch.object(
+                github,
+                "api_object",
+                side_effect=github.GitHubError("gh: Not Found (HTTP 404)"),
+            ) as read,
+        ):
+            self.assertFalse(reads.prior_attempt("org/repo", "code-monkey/issue-3"))
+        read.assert_called_once_with("repos/org/repo/branches/code-monkey/issue-3")
+
+
 class HasOpenLinkedPrTest(ReadsCase):
     """``has_open_linked_pr`` reads the GraphQL total count."""
 

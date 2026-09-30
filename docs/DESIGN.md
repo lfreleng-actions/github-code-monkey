@@ -566,8 +566,10 @@ For each selected issue:
    credential-less fetch of the target at the recorded base SHA. The
    bundle's prerequisite must equal that SHA, the history must be
    linear, and the commit count ≤ 5. Manifest fields present, typed,
-   and equal to the selection's repository, issue, base and branch.
-   Outcome `abstain` or `author-failed` records and moves on. A
+   and equal to the selection's repository, issue, base and branch,
+   for every outcome, so an abstention or failure from the wrong
+   artifact cannot land on this issue. Outcome `abstain` or
+   `author-failed` then records and moves on. A
    small compressed bundle can hold enormous objects, so the
    publisher caps every read of its content: counts come before
    listings and object sizes before content, a commit message stops

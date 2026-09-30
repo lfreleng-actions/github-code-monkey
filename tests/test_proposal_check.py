@@ -535,6 +535,17 @@ class RunCheckOutcomeTest(GitCase):
         self.assertIn("lacks changes.bundle", check.reasons[0])
 
 
+class OutcomeIdentityTest(GitCase):
+    """Every manifest outcome must name the selected issue."""
+
+    def test_mismatched_abstention_is_rejected(self) -> None:
+        """An abstention for another issue does not land on this one."""
+        self.fixture.manifest(outcome="abstain", reason="no", issue=99)
+        check = self.fixture.run()
+        self.assertEqual(check.verdict, "rejected")
+        self.assertTrue(any("issue" in r for r in check.reasons), check.reasons)
+
+
 class ReasonBoundTest(GitCase):
     """Reasons from the untrusted manifest are cut to a bounded size."""
 

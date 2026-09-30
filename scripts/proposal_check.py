@@ -83,14 +83,8 @@ def read_manifest(path: Path, check: Check) -> dict[str, Any]:
     outcome = manifest.get("outcome")
     if outcome not in policy.MANIFEST_OUTCOMES:
         raise Rejection(f"manifest outcome {outcome!r} is not recognised")
-    if outcome != "proposed":
-        reason = manifest.get("reason")
-        check.verdict = str(outcome)
-        text = (
-            reason if isinstance(reason, str) and reason.strip() else "no reason given"
-        )
-        check.reasons.append(text[: policy.MAX_REASON])
-        return manifest
+    # Identity first, for every outcome: an abstention or failure from
+    # the wrong artifact would otherwise land on this issue's record.
     expected = {
         "repository": check.repository,
         "issue": check.issue,
@@ -104,6 +98,14 @@ def read_manifest(path: Path, check: Check) -> dict[str, Any]:
         raise Rejection(
             "manifest disagrees with the trusted selection on " + ", ".join(mismatches)
         )
+    if outcome != "proposed":
+        reason = manifest.get("reason")
+        check.verdict = str(outcome)
+        text = (
+            reason if isinstance(reason, str) and reason.strip() else "no reason given"
+        )
+        check.reasons.append(text[: policy.MAX_REASON])
+        return manifest
     commands = manifest.get("commands")
     if isinstance(commands, list):
         for item in cast("list[Any]", commands)[:50]:

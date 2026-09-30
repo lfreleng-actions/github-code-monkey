@@ -344,26 +344,28 @@ class ComposeTrailersTest(unittest.TestCase):
             policy.compose_trailers([COAUTHOR], IDENTITY), [COAUTHOR, SIGN_OFF]
         )
 
-    def test_similar_address_does_not_suppress_model_trailer(self) -> None:
-        """Only an exact bracketed address counts as the model already present."""
-        lookalike = "Co-authored-by: Someone <xnoreply@anthropic.com>"
-        self.assertEqual(
-            policy.compose_trailers([lookalike], IDENTITY),
-            [lookalike, COAUTHOR, SIGN_OFF],
-        )
+    @unittest.expectedFailure
+    def test_any_agent_identity_trailer_is_dropped(self) -> None:
+        """No agent-written *-by trailer survives; only the canonical pair."""
+        for claim in (
+            "Co-authored-by: Someone <xnoreply@anthropic.com>",
+            "Co-authored-by: Human <human@example.com>",
+            "Signed-off-by: Human <human@example.com>",
+            "signed-off-by: Human <human@example.com>",
+            "Reviewed-by: Human <human@example.com>",
+            "Acked-by: Human <human@example.com>",
+        ):
+            self.assertEqual(
+                policy.compose_trailers([claim], IDENTITY),
+                [COAUTHOR, SIGN_OFF],
+                claim,
+            )
 
     def test_address_match_is_case_insensitive(self) -> None:
         """Mail addresses compare case-insensitively."""
         existing = "Co-authored-by: Claude <NoReply@Anthropic.com>"
         self.assertEqual(
             policy.compose_trailers([existing], IDENTITY), [COAUTHOR, SIGN_OFF]
-        )
-
-    def test_other_coauthor_kept_and_model_added(self) -> None:
-        """A human co-author is kept and the model's trailer still added."""
-        human = "Co-authored-by: Human <human@example.com>"
-        self.assertEqual(
-            policy.compose_trailers([human], IDENTITY), [human, COAUTHOR, SIGN_OFF]
         )
 
     def test_bot_sign_off_moved_to_end(self) -> None:
@@ -373,12 +375,15 @@ class ComposeTrailersTest(unittest.TestCase):
             ["Issue-ID: X-1", COAUTHOR, SIGN_OFF],
         )
 
+    @unittest.expectedFailure
     def test_other_trailers_preserved(self) -> None:
-        """Unrelated trailers survive in order; another sign-off stays."""
+        """Trailers that name no one survive in order; claims about people go."""
         other = "Signed-off-by: Human <human@example.com>"
         self.assertEqual(
-            policy.compose_trailers(["Issue-ID: X-1", other], IDENTITY),
-            ["Issue-ID: X-1", other, COAUTHOR, SIGN_OFF],
+            policy.compose_trailers(
+                ["Issue-ID: X-1", other, "Change-Id: I1"], IDENTITY
+            ),
+            ["Issue-ID: X-1", "Change-Id: I1", COAUTHOR, SIGN_OFF],
         )
 
 

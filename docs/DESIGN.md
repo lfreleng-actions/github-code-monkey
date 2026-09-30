@@ -637,7 +637,13 @@ For each selected issue:
    publisher looks for it on the bot's own comments since the run's
    creation, a time every attempt shares. A retry after a lost reply
    or a later failure then posts nothing twice, and a marker someone
-   else pastes cannot suppress the comment.
+   else pastes cannot suppress the comment. An operational failure
+   before any write, the offline check or a token mint, posts
+   nothing: the target saw no change, the verdict may be unknown,
+   and one publisher fault would otherwise comment on every issue
+   in the run. Step 9 records it in the report instead; a failure
+   during or after the writes (step 6 on) still comments, since the
+   issue's repository saw a branch and its rollback.
 9. **Record** `result.json` and a step-summary section. A step that
    runs whatever came before writes a `publish-failed` result when an
    earlier failure (the offline check, a token mint) left none, so

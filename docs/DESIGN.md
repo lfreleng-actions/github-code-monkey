@@ -617,7 +617,10 @@ For each selected issue:
    (an existing branch is a rejection), then replay commits per §5.
 7. **Open the pull request** (`pull-requests` mode) against the
    default branch: title from the manifest (equal to the subject on
-   a single commit, enforced), body from the manifest with
+   a single commit, enforced); a body that opens with the
+   publisher's own `Closes #<n>` line, which nothing the agent
+   writes can precede or turn into code, so the merge closes the
+   issue, followed by the manifest's body with
    `@mentions` defused, so agent text cannot notify anyone before a
    human reads it, and an appended provenance block (run URL, model,
    issue link, commands run), label `code-monkey` if the label
@@ -915,7 +918,7 @@ scripts/monkey_github.py                 gh wrapper, REST and GraphQL
 scripts/monkey_evidence.py               evidence digests, file caps
 scripts/proposal_fetch.py                bounded proposal extraction
 scripts/proposal_policy.py               the rules a proposal must pass
-scripts/markdown_code.py                 code regions in a PR body
+
 scripts/proposal_check.py                offline bundle verification
 scripts/proposal_model.py                verdict record and its rendering
 scripts/publish.py                       replay, open PR, reconcile
@@ -1100,7 +1103,7 @@ leaves none, the workflow writes one with `"outcome":
   "branch": "code-monkey/issue-40",
   "reason": null,
   "pr_title": "Feat(sbom): Add CycloneDX 1.6 output",
-  "pr_body": "...\n\nCloses #40\n",
+  "pr_body": "...\n",
   "commands": [{"command": "uv run pytest", "exit_code": 0}]
 }
 ```

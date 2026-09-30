@@ -110,7 +110,9 @@ The pull request body:
 - Explains what changed and why, in the terms the guidance uses for
   pull request descriptions.
 - Lists what you ran and what it showed.
-- Ends with a line `Closes #<issue number>`.
+
+The workflow opens the body with the line that closes the issue;
+do not add one.
 
 On a single-commit branch, `pr_title` **must equal** the commit
 subject, character for character. The workflow rejects the proposal

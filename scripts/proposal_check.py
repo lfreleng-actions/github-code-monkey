@@ -321,8 +321,6 @@ def verify_proposal(check: Check, manifest: dict[str, Any], context: Context) ->
     title, body = policy.check_pull_request_text(
         manifest.get("pr_title"),
         manifest.get("pr_body"),
-        repository=check.repository,
-        issue=check.issue,
         single_headline=single,
     )
     check.pr_title = title
@@ -334,8 +332,12 @@ def verify_proposal(check: Check, manifest: dict[str, Any], context: Context) ->
         commands=check.commands,
     )
     # The body is agent output: defuse mentions before a human has
-    # read it, as the issue comments already do.
-    check.pr_body = policy.defuse_mentions(body) + "\n" + provenance
+    # read it, as the issue comments already do. The closing line is
+    # the publisher's and comes first, so nothing the agent writes can
+    # precede it or turn it into code, and the merge closes the issue.
+    check.pr_body = (
+        f"Closes #{check.issue}\n\n" + policy.defuse_mentions(body) + "\n" + provenance
+    )
     policy.check_pull_request_body_size(check.pr_body)
 
 

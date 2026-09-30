@@ -306,7 +306,9 @@ class RunCheckProposedTest(GitCase):
         )
         self.assertTrue(check.pr_body.endswith(provenance))
         self.assertTrue(
-            check.pr_body.startswith(f"Fix the typo in the readme.\n\nCloses #{ISSUE}")
+            check.pr_body.startswith(
+                f"Closes #{ISSUE}\n\nFix the typo in the readme.\n\nCloses #{ISSUE}"
+            )
         )
         self.assertEqual(check.files_changed, 1)
         self.assertEqual(check.added_bytes, len(fixed.encode("utf-8")))
@@ -318,7 +320,6 @@ class RunCheckProposedTest(GitCase):
             serialised["stats"], {"files_changed": 1, "added_bytes": len(fixed)}
         )
 
-    @unittest.expectedFailure
     def test_publisher_owns_the_closing_line(self) -> None:
         """The body opens with this issue's Closes line whatever the agent wrote.
 
@@ -667,15 +668,6 @@ class RunCheckRejectionTest(GitCase):
         self.fixture.bundle()
         self.fixture.manifest(pr_title="Fix(readme): Something else")
         self.assertIn("must equal the subject", self.rejected())
-
-    def test_pr_body_without_closes(self) -> None:
-        """A body that does not close the issue is rejected."""
-        self.fixture.commit(
-            "Fix(readme): Correct typo\n\nBody.\n", {"README.md": "x\n"}
-        )
-        self.fixture.bundle()
-        self.fixture.manifest(pr_body="Fixed it.\n\nCloses #8\n")
-        self.assertIn(f"Closes #{ISSUE}", self.rejected())
 
     def test_manifest_repository_mismatch(self) -> None:
         """A manifest naming another repository disagrees with the selection."""

@@ -7,14 +7,12 @@ from __future__ import annotations
 
 import json
 import sys
-import time
 import unittest
 from importlib import import_module
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 policy = import_module("proposal_policy")
-markdown = import_module("markdown_code")
 
 IDENTITY = policy.Identity(
     coauthor="Claude <noreply@anthropic.com>",
@@ -437,17 +435,13 @@ class CheckPullRequestTextTest(unittest.TestCase):
                 self.subTest(title=title, body=body),
                 self.assertRaises(policy.Rejection),
             ):
-                policy.check_pull_request_text(
-                    title, body, repository="owner/repo", issue=7, single_headline=None
-                )
+                policy.check_pull_request_text(title, body, single_headline=None)
 
     def test_single_commit_title_must_match(self) -> None:
         """One commit means the title equals its subject, after stripping."""
         title, body = policy.check_pull_request_text(
             "  Fix: X ",
             "Closes #7\n\n",
-            repository="owner/repo",
-            issue=7,
             single_headline="Fix: X",
         )
         self.assertEqual((title, body), ("Fix: X", "Closes #7"))
@@ -455,8 +449,6 @@ class CheckPullRequestTextTest(unittest.TestCase):
             policy.check_pull_request_text(
                 "Fix: Y",
                 "Closes #7",
-                repository="owner/repo",
-                issue=7,
                 single_headline="Fix: X",
             )
 
@@ -465,126 +457,9 @@ class CheckPullRequestTextTest(unittest.TestCase):
         title, _ = policy.check_pull_request_text(
             "Anything goes",
             "Fixes #7",
-            repository="owner/repo",
-            issue=7,
             single_headline=None,
         )
         self.assertEqual(title, "Anything goes")
-
-    def test_closing_keywords(self) -> None:
-        """Closes, Fixes and Resolves, any case, bare or for this repository."""
-        for body in (
-            "Closes #7",
-            "text\nfixes #7\nmore",
-            "  RESOLVES owner/repo#7",
-            "Resolves owner.name/re-po#7.",
-        ):
-            with self.subTest(body=body):
-                repository = "owner.name/re-po" if "re-po" in body else "owner/repo"
-                policy.check_pull_request_text(
-                    "T", body, repository=repository, issue=7, single_headline=None
-                )
-
-    def test_closing_keyword_in_a_container_fence_does_not_count(self) -> None:
-        """A fence inside a list item or quote is code on GitHub too."""
-        for body in (
-            "Intro\n\n- ```text\n  Closes #7\n  ```\n",
-            "1. ~~~\n   Closes #7\n   ~~~\n",
-            "- item\n\n  ```\n  Closes #7\n  ```\n",
-        ):
-            with (
-                self.subTest(body=body),
-                self.assertRaisesRegex(policy.Rejection, "Closes #7"),
-            ):
-                policy.check_pull_request_text(
-                    "T", body, repository="owner/repo", issue=7, single_headline=None
-                )
-        policy.check_pull_request_text(
-            "T",
-            "- ```text\n  example\n  ```\n\nCloses #7\n",
-            repository="owner/repo",
-            issue=7,
-            single_headline=None,
-        )
-
-    def test_container_prefixes_scan_in_linear_time(self) -> None:
-        """Long runs of list and quote markers cannot stall the fence scan."""
-        hostile = ("- " * 20_000 + "x\n") + ("> " * 20_000 + "x\n")
-        started = time.monotonic()
-        markdown.strip_code(hostile)
-        self.assertLess(time.monotonic() - started, 2)
-
-    def test_closing_keyword_inside_code_does_not_count(self) -> None:
-        """A closing line in a fence or code span closes nothing on GitHub."""
-        for body in (
-            "Example:\n\n```text\nCloses #7\n```\n",
-            "Example:\n\n~~~\nCloses #7\n~~~\n",
-            "Write `Closes #7` at the end.",
-            "Unclosed:\n\n```text\nCloses #7\n",
-            "<!-- Closes #7 -->",
-            "```\n    ```\nCloses #7\n",
-            "````\n```\nCloses #7\n",
-            "```\n~~~\nCloses #7\n",
-            "Text\n<!--\nCloses #7\n-->\n",
-            "Text\n<!-- never closed\nCloses #7\n",
-            "````\n```\nCloses #7\n````\n",
-        ):
-            with (
-                self.subTest(body=body),
-                self.assertRaisesRegex(policy.Rejection, "Closes #7"),
-            ):
-                policy.check_pull_request_text(
-                    "T", body, repository="owner/repo", issue=7, single_headline=None
-                )
-        policy.check_pull_request_text(
-            "T",
-            "```text\nexample\n```\n\nCloses #7\n",
-            repository="owner/repo",
-            issue=7,
-            single_headline=None,
-        )
-
-    def test_closing_directive_stays_on_one_line_outside_code(self) -> None:
-        """A keyword split from its reference, or indented as code, closes nothing."""
-        for body in ("Closes\n#7", "    Closes #7", "Closes\t\n#7"):
-            with (
-                self.subTest(body=body),
-                self.assertRaisesRegex(policy.Rejection, "Closes #7"),
-            ):
-                policy.check_pull_request_text(
-                    "T", body, repository="owner/repo", issue=7, single_headline=None
-                )
-        policy.check_pull_request_text(
-            "T", "   Closes #7", repository="owner/repo", issue=7, single_headline=None
-        )
-
-    def test_closing_reference_to_another_repository_rejects(self) -> None:
-        """A qualified reference must name the selected repository."""
-        with self.assertRaisesRegex(policy.Rejection, "Closes #7"):
-            policy.check_pull_request_text(
-                "T",
-                "Closes unrelated/repo#7",
-                repository="owner/repo",
-                issue=7,
-                single_headline=None,
-            )
-
-    def test_closing_line_must_start_line(self) -> None:
-        """The keyword must open the line and the number must be exact."""
-        for body in (
-            "This closes #7",
-            "Closes #70",
-            "Closes #8",
-            "Closes 7",
-            "Closes: #7",
-        ):
-            with (
-                self.subTest(body=body),
-                self.assertRaisesRegex(policy.Rejection, "Closes #7"),
-            ):
-                policy.check_pull_request_text(
-                    "T", body, repository="owner/repo", issue=7, single_headline=None
-                )
 
     def test_title_length(self) -> None:
         """A title over 256 characters is rejected."""
@@ -592,40 +467,13 @@ class CheckPullRequestTextTest(unittest.TestCase):
             policy.check_pull_request_text(
                 "x" * 257,
                 "Closes #7",
-                repository="owner/repo",
-                issue=7,
                 single_headline=None,
             )
         policy.check_pull_request_text(
             "x" * 256,
             "Closes #7",
-            repository="owner/repo",
-            issue=7,
             single_headline=None,
         )
-
-
-class StripCodeSpansTest(unittest.TestCase):
-    """``strip_code_spans`` follows CommonMark runs in linear time."""
-
-    def test_span_rules(self) -> None:
-        """Equal-length runs pair; an unmatched run stays literal."""
-        cases = {
-            "a `code` b": "a  b",
-            "a ``x ` y`` b": "a  b",
-            "lone ` tick": "lone ` tick",
-            "a `one` ``two`` c": "a   c",
-            "x `` y ` z": "x `` y ` z",
-        }
-        for text, expected in cases.items():
-            with self.subTest(text=text):
-                self.assertEqual(markdown.strip_code_spans(text), expected)
-
-    def test_hostile_run_is_linear(self) -> None:
-        """A long run of backticks is quick, where a regex backtracked for seconds."""
-        started = time.perf_counter()
-        markdown.strip_code("x " + "`" * 50_000)
-        self.assertLess(time.perf_counter() - started, 1.0)
 
 
 class DefuseMentionsTest(unittest.TestCase):

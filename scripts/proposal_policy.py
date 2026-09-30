@@ -15,8 +15,6 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from markdown_code import strip_code
-
 MAX_COMMITS = 5
 # createCommitOnBranch accepts at most 100 file changes per call.
 MAX_FILES_PER_COMMIT = 100
@@ -55,11 +53,7 @@ HEADLINE_RE = re.compile(
 )
 TRAILER_RE = re.compile(r"^[A-Za-z][A-Za-z-]*: .+$")
 URL_RE = re.compile(r"https?://")
-# Same-line whitespace alone: GitHub needs the keyword and reference on
-# one line, and four spaces of indentation make the line code.
-CLOSES_TEMPLATE = (
-    r"(?im)^[ ]{{0,3}}(?:closes|fixes|resolves)[ \t]+(?:{repository})?#{number}\b"
-)
+
 PROTECTED_PATHS = ("AGENTS.md", "REUSE.toml", ".gitlint")
 PROTECTED_PREFIXES = ("LICENSE", "LICENSES/")
 WORKFLOW_PREFIX = ".github/workflows/"
@@ -265,15 +259,12 @@ def check_pull_request_text(
     title: Any,
     body: Any,
     *,
-    repository: str,
-    issue: int,
     single_headline: str | None,
 ) -> tuple[str, str]:
     """Check the title and body the agent proposed; return them stripped.
 
-    The closing reference must name this issue in this repository: a
-    bare ``#N`` or ``owner/repo#N`` for the selected repository alone,
-    so the merged pull request closes what the run set out to close.
+    The body needs no closing keyword: the publisher opens every body
+    with its own ``Closes #N`` line.
     """
     if not isinstance(title, str) or not title.strip():
         raise Rejection("manifest lacks a pull request title")
@@ -284,11 +275,7 @@ def check_pull_request_text(
         raise Rejection("single-commit pull request title must equal the subject")
     if len(title) > MAX_PR_TITLE:
         raise Rejection(f"pull request title exceeds {MAX_PR_TITLE} characters")
-    # Size first: nothing over GitHub's limit is worth scanning.
     check_pull_request_body_size(body)
-    pattern = CLOSES_TEMPLATE.format(repository=re.escape(repository), number=issue)
-    if not re.search(pattern, strip_code(body)):
-        raise Rejection(f"pull request body lacks a 'Closes #{issue}' line")
     return title, body.rstrip("\n")
 
 

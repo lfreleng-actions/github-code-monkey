@@ -129,7 +129,6 @@ class ExtractTest(unittest.TestCase):
         with self.assertRaisesRegex(fetcher.Refused, "not a valid zip"):
             fetcher.extract(archive, self.output)
 
-    @unittest.expectedFailure
     def test_unsupported_compression_refused(self) -> None:
         """A compression method zipfile cannot read is a refusal."""
         archive = self.root / "a.zip"
@@ -141,7 +140,6 @@ class ExtractTest(unittest.TestCase):
         with self.assertRaisesRegex(fetcher.Refused, "compression"):
             fetcher.extract(archive, self.output)
 
-    @unittest.expectedFailure
     def test_encrypted_entry_refused(self) -> None:
         """An entry flagged as encrypted is a refusal."""
         archive = self.root / "a.zip"
@@ -153,7 +151,6 @@ class ExtractTest(unittest.TestCase):
         with self.assertRaisesRegex(fetcher.Refused, "encrypted"):
             fetcher.extract(archive, self.output)
 
-    @unittest.expectedFailure
     def test_corrupt_deflate_stream_refused(self) -> None:
         """Deflate data that fails to decode is a refusal."""
         archive = make_zip({"manifest.json": MANIFEST * 64}, self.root / "a.zip")

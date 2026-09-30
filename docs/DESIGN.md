@@ -564,11 +564,11 @@ For each selected issue:
    `download-artifact`, which would extract it before any size
    check: it refuses a zip larger than the sum of the file caps,
    streams it to disk under that limit, checks the zip directory
-   (entry count, regular files, per-file caps) and extracts the
-   manifest, bundle and usage files alone, each read with a hard
-   stop. An artifact it refuses records `author-failed` the same
-   way, so every issue reaches a result, a comment and a report
-   row.
+   (entry count, regular files, per-file caps, stored or deflated
+   and unencrypted) and extracts the manifest, bundle and usage
+   files alone, each read with a hard stop. An artifact it refuses
+   records `author-failed` the same way, so every issue reaches a
+   result, a comment and a report row.
 2. **Verify the bundle.** `git bundle verify` against a fresh
    credential-less fetch of the target at the recorded base SHA. The
    bundle's prerequisite must equal that SHA, the history must be

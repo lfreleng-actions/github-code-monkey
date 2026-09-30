@@ -25,6 +25,7 @@ import sys
 import tempfile
 import threading
 import zipfile
+import zlib
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import quote
@@ -147,6 +148,15 @@ def extract(archive: Path, output: Path) -> list[str]:
                     raise Refused(f"{entry.filename} is not a regular file")
                 if entry.file_size > caps[entry.filename][0]:
                     raise Refused(f"{entry.filename} exceeds its cap")
+                # zipfile raises NotImplementedError or RuntimeError for
+                # these on read; refuse them here instead.
+                if entry.compress_type not in (
+                    zipfile.ZIP_STORED,
+                    zipfile.ZIP_DEFLATED,
+                ):
+                    raise Refused(f"{entry.filename} uses unsupported compression")
+                if entry.flag_bits & 0x1:
+                    raise Refused(f"{entry.filename} is encrypted")
                 found[entry.filename] = entry
             output.mkdir(parents=True, exist_ok=True)
             copied: list[str] = []
@@ -164,7 +174,7 @@ def extract(archive: Path, output: Path) -> list[str]:
                 (output / name).write_bytes(content)
                 copied.append(name)
             return copied
-    except zipfile.BadZipFile as exc:
+    except (zipfile.BadZipFile, zlib.error, EOFError) as exc:
         raise Refused(f"artifact is not a valid zip: {exc}") from exc
 
 

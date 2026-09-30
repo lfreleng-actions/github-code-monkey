@@ -183,18 +183,20 @@ these organisations for their forks:
 
 | Fork organisation | Holds forks of |
 | ----------------- | -------------- |
-| `bot-onap-forks` | ONAP project repositories |
-| `bot-oransc-forks` | O-RAN-SC project repositories |
-| `bot-opendaylight-forks` | OpenDaylight project repositories |
-| `bot-forks` | Every other organisation's repositories, `lfreleng-actions` included |
+| `lfreleng-bot-forks` | Every organisation without a dedicated pool, `lfreleng-actions` included |
+| `lfreleng-bot-forks-onap` | ONAP project repositories |
+| `lfreleng-bot-forks-oransc` | O-RAN-SC project repositories |
+| `lfreleng-bot-forks-opendaylight` | OpenDaylight project repositories |
 
 <!-- markdownlint-enable MD013 -->
 
-The dedicated three exist so that each project's forks, and the
-access to them, stay separate from the general pool. The rule
-applies to any agent-authored pull request in `lfreleng-actions`,
-not to this workflow alone; the organisation `AGENTS.md` is the
-right home for it once agreed.
+The names follow one pattern: `lfreleng-bot-forks` is the general
+pool, and a project that needs its own takes
+`lfreleng-bot-forks-<project>`. The dedicated pools exist so that
+each project's forks, and the access to them, stay separate from
+the general pool. The rule applies to any agent-authored pull
+request in `lfreleng-actions`, not to this workflow alone; with the
+names agreed, the organisation `AGENTS.md` is its right home.
 
 Publishing then works as follows, with the §5 signing unchanged:
 

@@ -41,9 +41,31 @@ def attempt_of(item: dict[str, Any]) -> int:
     return value if type(value) is int else 0
 
 
+def total_spend(every: list[dict[str, Any]], shown: list[dict[str, Any]]) -> float:
+    """Premium requests the run paid for, each author session once.
+
+    A rerun author job is a new session with its own cost, even when a
+    later attempt supersedes its row; a publish retry reuses the same
+    session. Results without a session count only where shown.
+    """
+    sessions: dict[str, float] = {}
+    for item in every:
+        session = item.get("author_session")
+        if isinstance(session, str) and session:
+            cost = model.usage_number(item.get("premium_requests")) or 0.0
+            sessions[session] = max(sessions.get(session, 0.0), cost)
+    unattributed = sum(
+        model.usage_number(item.get("premium_requests")) or 0.0
+        for item in shown
+        if not item.get("author_session")
+    )
+    return sum(sessions.values()) + unattributed
+
+
 def run_report(args: argparse.Namespace) -> None:
     """Merge every result.json into one table."""
     unreadable: list[str] = []
+    every: list[dict[str, Any]] = []
     latest: dict[str, dict[str, Any]] = {}
     unkeyed: list[dict[str, Any]] = []
     for path in sorted(args.results.rglob("result.json")):
@@ -52,6 +74,7 @@ def run_report(args: argparse.Namespace) -> None:
         except PublishError as exc:
             unreadable.append(str(exc))
             continue
+        every.append(item)
         key = item.get("key")
         if not isinstance(key, str):
             unkeyed.append(item)
@@ -67,15 +90,11 @@ def run_report(args: argparse.Namespace) -> None:
         "| --- | --- | --- | --- | --- |",
     ]
     totals: dict[str, int] = dict.fromkeys(policy.VERDICTS, 0)
-    spend = 0.0
     for item in results:
         verdict = str(item.get("verdict"))
         totals[verdict] = totals.get(verdict, 0) + 1
-        requests = item.get("premium_requests")
-        # Premium requests can be fractional; keep every figure exact
-        # enough to add up, and reject anything that is not a number.
-        spend += model.usage_number(requests) or 0.0
         lines.append(report_row(item))
+    spend = total_spend(every, results)
     for problem in unreadable:
         lines.append(f"| — | unreadable | — | — | {problem.replace('|', '/')[:300]} |")
     if not results and not unreadable:

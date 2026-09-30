@@ -643,7 +643,11 @@ For each selected issue:
    every selected issue reaches the report. A final
    report job gathers every `result.json` by artifact-name pattern
    and renders one table: issue, verdict, output URL, premium
-   requests consumed (from `usage.json`), detail.
+   requests consumed (from `usage.json`), detail. A retried entry
+   shows its latest attempt's row, but the run's spend total counts
+   each author session once: a rerun author job uploads a new
+   proposal artifact, and the ID of each proposal artifact names
+   the session that produced it.
 
 ## 9. Inputs
 
@@ -1149,12 +1153,15 @@ block.
   "pull_request_url": "https://github.com/.../pull/41",
   "comment_url": "https://github.com/.../issues/40#issuecomment-1",
   "premium_requests": 37.5,
-  "agent_seconds": 1543
+  "agent_seconds": 1543,
+  "run_attempt": 1,
+  "author_session": "<proposal artifact ID>"
 }
 ```
 
-URLs are `null` where the mode or a rejection stopped short. The
-report job merges every `result.json` into one table.
+URLs are `null` where the mode or a rejection stopped short, and
+`author_session` where no proposal arrived. The report job merges
+every `result.json` into one table.
 
 ### 18.5 Script interfaces
 
@@ -1175,7 +1182,8 @@ publish.py check --selection PATH --key KEY --proposal-dir DIR
     --workdir DIR --coauthors PATH --output check.json
     [--summary check-summary.md] [--run-url URL]
 publish.py apply --check check.json --workdir DIR --mode MODE
-    [--dry-run] --output result.json
+    [--dry-run] [--run-attempt N] [--author-session ID]
+    --output result.json
 publish.py comment --result result.json [--run-url URL]
 publish.py report --results DIR --output-md PATH --output-json PATH
 ```

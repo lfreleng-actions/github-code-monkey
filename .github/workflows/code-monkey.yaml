@@ -763,6 +763,7 @@ jobs:
       # yields a typed manifest, so the check, result, comment and
       # report rows all happen for this issue.
       - name: 'Fetch and accept bounded proposal'
+        id: fetch
         env:
           GH_TOKEN: "${{ github.token }}"
           REPOSITORY: "${{ github.repository }}"
@@ -778,7 +779,7 @@ jobs:
           status=0
           python3 monkey-assets/scripts/proposal_fetch.py \
             --repository "$REPOSITORY" --run-id "$RUN_ID" --name "$NAME" \
-            --output accepted || status=$?
+            --output accepted >> "$GITHUB_OUTPUT" || status=$?
           case "$status" in
             0) exit 0 ;;
             3) reason='the author job produced no proposal artifact' ;;
@@ -844,12 +845,16 @@ jobs:
           MODE: "${{ inputs.mode }}"
           DRY_RUN: "${{ inputs.dry_run }}"
           RUN_ATTEMPT: "${{ github.run_attempt }}"
+          # Empty when no proposal arrived; that session cost nothing
+          # the report can see.
+          AUTHOR_SESSION: "${{ steps.fetch.outputs.artifact_id }}"
         run: |
           extra=()
           if [ "$DRY_RUN" = true ]; then extra+=(--dry-run); fi
           python3 monkey-assets/scripts/publish.py apply \
             --check artefacts/check.json --workdir work \
             --run-attempt "$RUN_ATTEMPT" \
+            --author-session "$AUTHOR_SESSION" \
             --mode "$MODE" --output artefacts/result.json "${extra[@]}"
 
       # Runs after a failed apply as well, so a publish failure and
@@ -912,6 +917,7 @@ jobs:
               schema: 1, key: $key, repository: $repo, issue: $issue,
               verdict: "publish-failed", reasons: [$reason], warnings: [],
               dry_run: $dry, mode: $mode, run_attempt: $attempt,
+              author_session: null,
               branch_url: null, commits: [], pull_request_url: null,
               comment_url: null, pr_title: null, premium_requests: null,
               agent_seconds: null

@@ -154,6 +154,7 @@ def run_apply(args: argparse.Namespace) -> dict[str, Any]:
         "key": check.get("key"),
         "bot_login": check.get("bot_login"),
         "run_attempt": args.run_attempt,
+        "author_session": args.author_session or None,
         "repository": check.get("repository"),
         "issue": check.get("issue"),
         "verdict": verdict,
@@ -350,6 +351,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     apply.add_argument("--dry-run", action="store_true")
     apply.add_argument("--run-attempt", type=int, default=1)
+    # The proposal's artifact ID; empty when none arrived.
+    apply.add_argument("--author-session", default="")
     apply.add_argument("--output", type=Path, required=True)
     apply.set_defaults(handler=write_apply)
 

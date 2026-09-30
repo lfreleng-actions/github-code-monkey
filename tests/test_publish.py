@@ -250,7 +250,6 @@ class RunApplyTest(NoNetworkCase):
         self.assertEqual(result["agent_seconds"], 90)
         self.assertEqual(result["pr_title"], "Fix: Both")
 
-    @unittest.expectedFailure
     def test_author_session_is_recorded(self) -> None:
         """The trusted proposal artifact ID travels into the result."""
         path = self.write_check(check_json(verdict="abstain"))
@@ -1069,7 +1068,6 @@ class RunReportTest(NoNetworkCase):
         self.assertEqual(report["totals"]["publish-failed"], 0)
         self.assertEqual(report["premium_requests"], 5)
 
-    @unittest.expectedFailure
     def test_each_author_session_is_paid_for_once(self) -> None:
         """A rerun author session adds its spend; a publish retry does not."""
         results = self.root / "results"

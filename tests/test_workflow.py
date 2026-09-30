@@ -496,7 +496,6 @@ class PublishJobContracts(ReusableWorkflowCase):
         upload = self.step("publish", "Attach publish result")
         self.assertLess(steps.index(ensure), steps.index(upload))
 
-    @unittest.expectedFailure
     def test_result_names_the_author_session(self) -> None:
         """The fetched artifact's ID reaches apply, so spend counts per session."""
         fetch = self.step("publish", "Fetch and accept bounded proposal")

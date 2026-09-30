@@ -11,8 +11,9 @@ streams the zip to disk under that limit, inspects the zip directory,
 and extracts the permitted files alone, each read with a hard stop so
 a zip that lies about sizes cannot expand past its cap.
 
-Exit status: 0 accepted; 3 no such artifact; 4 artifact refused.
-Anything else is an operational failure.
+Exit status: 0 accepted, with ``artifact_id=<id>`` on stdout; 3 no
+such artifact; 4 artifact refused. Anything else is an operational
+failure.
 """
 
 from __future__ import annotations
@@ -167,15 +168,21 @@ def extract(archive: Path, output: Path) -> list[str]:
         raise Refused(f"artifact is not a valid zip: {exc}") from exc
 
 
-def fetch(repository: str, run_id: str, name: str, output: Path) -> list[str]:
-    """Find, bound, download and extract one proposal artifact."""
+def fetch(
+    repository: str, run_id: str, name: str, output: Path
+) -> tuple[int, list[str]]:
+    """Find, bound, download and extract one proposal artifact.
+
+    Returns the artifact ID, which names the author session that
+    produced it, and the files extracted.
+    """
     artifact_id, size = find_artifact(repository, run_id, name)
     if size > ZIP_LIMIT:
         raise Refused(f"artifact zip is {size} bytes, over {ZIP_LIMIT}")
     with tempfile.TemporaryDirectory() as holder:
         archive = Path(holder) / "proposal.zip"
         download(repository, artifact_id, archive)
-        return extract(archive, output)
+        return artifact_id, extract(archive, output)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -187,7 +194,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        copied = fetch(args.repository, args.run_id, args.name, args.output)
+        artifact_id, copied = fetch(
+            args.repository, args.run_id, args.name, args.output
+        )
     except Missing as exc:
         print(f"proposal: {exc}", file=sys.stderr)
         raise SystemExit(NOT_FOUND) from exc
@@ -197,7 +206,10 @@ def main(argv: list[str] | None = None) -> None:
     except (OSError, subprocess.SubprocessError, github.GitHubError) as exc:
         message = ascii(str(exc)).replace("::", ": :").replace("##[", "# #[")
         parser.exit(1, f"proposal fetch: {message}\n")
-    print(f"accepted: {', '.join(copied)}")
+    print(f"accepted: {', '.join(copied)}", file=sys.stderr)
+    # Stdout is the step's output file: each upload gets a new ID, so
+    # the report can tell a rerun author session from a publish retry.
+    print(f"artifact_id={artifact_id}")
 
 
 if __name__ == "__main__":

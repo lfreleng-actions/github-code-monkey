@@ -1101,7 +1101,6 @@ class RunReportTest(NoNetworkCase):
         self.assertEqual(report["results"][0]["run_attempt"], 3)
         self.assertEqual(report["premium_requests"], 35)
 
-    @unittest.expectedFailure
     def test_forged_fields_stay_inside_their_cells(self) -> None:
         """Newlines and pipes in any field cannot add rows or headings."""
         results = self.root / "results" / "forged"

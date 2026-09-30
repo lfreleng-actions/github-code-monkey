@@ -16,6 +16,15 @@ from proposal_policy import PublishError
 SCHEMA = 1
 
 
+def cell(value: Any, limit: int = 300) -> str:
+    """One table cell: flattened to a line, bounded, pipes escaped.
+
+    Results are not yet authenticated (docs/DESIGN.md 18.4), so every
+    field may come from the author job; none may add a row or heading.
+    """
+    return policy.log_safe(str(value))[:limit].replace("|", "\\|")
+
+
 def report_row(item: dict[str, Any]) -> str:
     """One table row for a result."""
     verdict = str(item.get("verdict"))
@@ -25,13 +34,13 @@ def report_row(item: dict[str, Any]) -> str:
         output = "dry run"
     notes = [str(r) for r in cast("list[Any]", item.get("reasons") or [])]
     notes += [str(w) for w in cast("list[Any]", item.get("warnings") or [])]
-    # Choose the text first, then make it one escaped table cell: the
-    # title and the reasons alike descend from agent output.
+    # Choose the text first, then make it one cell: the title and the
+    # reasons alike descend from agent output.
     text = "; ".join(notes) or str(item.get("pr_title") or "")
-    detail = policy.log_safe(text).replace("|", "\\|")[:300]
+    issue = cell(f"{item.get('repository')}#{item.get('issue')}")
     return (
-        f"| {item.get('repository')}#{item.get('issue')} | {verdict} | {output} "
-        f"| {'—' if requests is None else f'{requests:g}'} | {detail} |"
+        f"| {issue} | {cell(verdict)} | {cell(output)} "
+        f"| {'—' if requests is None else f'{requests:g}'} | {cell(text)} |"
     )
 
 
@@ -96,7 +105,7 @@ def run_report(args: argparse.Namespace) -> None:
         lines.append(report_row(item))
     spend = total_spend(every, results)
     for problem in unreadable:
-        lines.append(f"| — | unreadable | — | — | {problem.replace('|', '/')[:300]} |")
+        lines.append(f"| — | unreadable | — | — | {cell(problem)} |")
     if not results and not unreadable:
         lines.append("| — | — | — | — | no proposals |")
     lines += [

@@ -10,6 +10,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import zipfile
 from contextlib import redirect_stderr
@@ -184,7 +185,7 @@ class FetchTest(unittest.TestCase):
             def kill(self) -> None:
                 """Record nothing; the fetch must call this."""
 
-            def wait(self, timeout: int) -> int:
+            def wait(self, timeout: float | None = None) -> int:
                 """Report the kill."""
                 return self.returncode
 
@@ -194,6 +195,26 @@ class FetchTest(unittest.TestCase):
             self.assertRaisesRegex(fetcher.Refused, "exceeds"),
         ):
             fetcher.download("o/r", 5, Path(holder) / "z.zip")
+
+    @unittest.expectedFailure
+    def test_stalled_download_is_killed_at_the_deadline(self) -> None:
+        """A gh process that never writes cannot outlive the timeout."""
+        real_popen = subprocess.Popen
+        stalled = [sys.executable, "-c", "import time; time.sleep(5)"]
+
+        def spawn(_args: list[str], **kwargs: Any) -> Any:
+            """Start a silent process in place of gh."""
+            return real_popen(stalled, **kwargs)
+
+        started = time.monotonic()
+        with (
+            patch.object(fetcher, "TIMEOUT_SECONDS", 1),
+            patch.object(fetcher.subprocess, "Popen", side_effect=spawn),
+            tempfile.TemporaryDirectory() as holder,
+            self.assertRaisesRegex(github.GitHubError, "timed out"),
+        ):
+            fetcher.download("o/r", 5, Path(holder) / "z.zip")
+        self.assertLess(time.monotonic() - started, 4)
 
 
 class MainTest(unittest.TestCase):

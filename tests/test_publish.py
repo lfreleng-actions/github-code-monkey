@@ -447,6 +447,36 @@ class RunApplyTest(NoNetworkCase):
         self.assertEqual(result["pull_request_url"], "https://x/pull/3")
         self.assertIn("resumed an earlier attempt's branch", result["warnings"])
 
+    @unittest.expectedFailure
+    def test_resumed_pr_with_a_lost_reply_is_found(self) -> None:
+        """A resumed PR whose POST reply is lost is looked up, not failed."""
+        path = self.write_check(check_json())
+        with (
+            patch.object(
+                publish, "create_branch", side_effect=policy.Rejection("branch exists")
+            ),
+            patch.object(publish, "branch_matches", return_value=True),
+            patch.object(
+                publish,
+                "existing_pull_request",
+                side_effect=[None, "https://x/pull/4"],
+            ),
+            patch.object(
+                publish,
+                "open_pull_request",
+                side_effect=github.GitHubError("gh: Bad Gateway (HTTP 502)"),
+            ),
+            patch.object(publish, "delete_branch") as delete,
+        ):
+            result = publish.run_apply(self.apply_args(path))
+        delete.assert_not_called()
+        self.assertEqual(result["verdict"], "proposed")
+        self.assertEqual(result["pull_request_url"], "https://x/pull/4")
+        self.assertTrue(
+            any("pull request exists" in w for w in result["warnings"]),
+            result["warnings"],
+        )
+
     def test_reconciliation_failure_records_a_result(self) -> None:
         """An error while reconciling still writes result.json and keeps the branch."""
         path = self.write_check(check_json())

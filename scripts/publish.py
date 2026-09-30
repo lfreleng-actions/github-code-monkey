@@ -291,7 +291,16 @@ def reconcile(
         return result
     # The earlier attempt pushed the branch but its pull request never
     # opened: finish the job instead of rejecting our own work.
-    url, warning = open_pull_request(check)
+    try:
+        url, warning = open_pull_request(check)
+    except (PublishError, github.GitHubError) as exc:
+        # As on a fresh branch: the POST may have landed with its reply
+        # lost, so a live pull request is not a failure.
+        found = existing_pull_request(repository, branch, bot)
+        if found is None:
+            raise
+        url = found
+        warning = f"the pull request call reported {exc} but the pull request exists"
     result["pull_request_url"] = url
     warnings.append("resumed an earlier attempt's branch")
     if warning:

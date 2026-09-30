@@ -447,7 +447,6 @@ class RunApplyTest(NoNetworkCase):
         self.assertEqual(result["pull_request_url"], "https://x/pull/3")
         self.assertIn("resumed an earlier attempt's branch", result["warnings"])
 
-    @unittest.expectedFailure
     def test_resumed_pr_with_a_lost_reply_is_found(self) -> None:
         """A resumed PR whose POST reply is lost is looked up, not failed."""
         path = self.write_check(check_json())

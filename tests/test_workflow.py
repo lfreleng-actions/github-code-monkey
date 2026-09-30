@@ -14,7 +14,11 @@ go by producer artifact ID, that every action is pinned to a commit.
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 from collections import Counter
 from pathlib import Path
@@ -495,6 +499,55 @@ class PublishJobContracts(ReusableWorkflowCase):
         steps = self.steps("publish")
         upload = self.step("publish", "Attach publish result")
         self.assertLess(steps.index(ensure), steps.index(upload))
+
+    @unittest.expectedFailure
+    @unittest.skipUnless(shutil.which("jq") and shutil.which("bash"), "needs jq")
+    def test_fallback_result_keeps_the_session_spend(self) -> None:
+        """A failure after the check still reports the session it paid for."""
+        ensure = self.step("publish", "Ensure a result exists")
+        self.assert_expression(
+            ensure["env"]["AUTHOR_SESSION"], "steps.fetch.outputs.artifact_id"
+        )
+        env = {
+            "PATH": os.environ["PATH"],
+            "KEY": "repo-7",
+            "REPOSITORY": "o/repo",
+            "ISSUE": "7",
+            "DRY_RUN": "false",
+            "MODE": "pull-requests",
+            "RUN_ATTEMPT": "1",
+            "CHECK_OUTCOME": "success",
+            "APPLY_OUTCOME": "skipped",
+        }
+        for session, check, expected in (
+            ("77", {"premium_requests": 12.5, "agent_seconds": 30}, ("77", 12.5, 30)),
+            ("", None, (None, None, None)),
+        ):
+            with tempfile.TemporaryDirectory() as holder:
+                work = Path(holder)
+                if check is not None:
+                    (work / "artefacts").mkdir()
+                    (work / "artefacts" / "check.json").write_text(
+                        json.dumps(check), encoding="utf-8"
+                    )
+                subprocess.run(
+                    ["bash", "-e", "-c", str(ensure["run"])],
+                    cwd=work,
+                    env={**env, "AUTHOR_SESSION": session},
+                    check=True,
+                )
+                result = json.loads(
+                    (work / "artefacts" / "result.json").read_text(encoding="utf-8")
+                )
+            self.assertEqual(result["verdict"], "publish-failed")
+            self.assertEqual(
+                (
+                    result["author_session"],
+                    result["premium_requests"],
+                    result["agent_seconds"],
+                ),
+                expected,
+            )
 
     def test_result_names_the_author_session(self) -> None:
         """The fetched artifact's ID reaches apply, so spend counts per session."""

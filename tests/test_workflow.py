@@ -500,7 +500,6 @@ class PublishJobContracts(ReusableWorkflowCase):
         upload = self.step("publish", "Attach publish result")
         self.assertLess(steps.index(ensure), steps.index(upload))
 
-    @unittest.expectedFailure
     @unittest.skipUnless(shutil.which("jq") and shutil.which("bash"), "needs jq")
     def test_fallback_result_keeps_the_session_spend(self) -> None:
         """A failure after the check still reports the session it paid for."""

@@ -904,23 +904,35 @@ jobs:
           RUN_ATTEMPT: "${{ github.run_attempt }}"
           CHECK_OUTCOME: "${{ steps.check.outcome }}"
           APPLY_OUTCOME: "${{ steps.apply.outcome }}"
+          # The session this entry paid for, and what the check recorded
+          # of its spend, survive a later failure so the report counts it.
+          AUTHOR_SESSION: "${{ steps.fetch.outputs.artifact_id }}"
         run: |
           # shellcheck disable=SC2016  # jq variables, not shell expansions
           if [ -s artefacts/result.json ]; then exit 0; fi
           mkdir -p artefacts
+          usage='{}'
+          if [ -s artefacts/check.json ]; then
+            usage="$(jq -c '{premium_requests, agent_seconds}' \
+              artefacts/check.json)" || usage='{}'
+          fi
           reason="publish did not complete (offline check: $CHECK_OUTCOME,"
           reason="$reason apply: $APPLY_OUTCOME)"
           jq -n --arg key "$KEY" --arg repo "$REPOSITORY" \
             --argjson issue "$ISSUE" --arg reason "$reason" \
             --argjson dry "$DRY_RUN" --arg mode "$MODE" \
-            --argjson attempt "$RUN_ATTEMPT" '{
+            --argjson attempt "$RUN_ATTEMPT" \
+            --arg session "$AUTHOR_SESSION" --argjson usage "$usage" '
+            def number: if type == "number" then . else null end;
+            {
               schema: 1, key: $key, repository: $repo, issue: $issue,
               verdict: "publish-failed", reasons: [$reason], warnings: [],
               dry_run: $dry, mode: $mode, run_attempt: $attempt,
-              author_session: null,
+              author_session: (if $session == "" then null else $session end),
               branch_url: null, commits: [], pull_request_url: null,
-              comment_url: null, pr_title: null, premium_requests: null,
-              agent_seconds: null
+              comment_url: null, pr_title: null,
+              premium_requests: ($usage.premium_requests | number),
+              agent_seconds: ($usage.agent_seconds | number)
             }' > artefacts/result.json
 
       - name: 'Attach publish result'

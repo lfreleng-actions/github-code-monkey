@@ -1101,6 +1101,34 @@ class RunReportTest(NoNetworkCase):
         self.assertEqual(report["results"][0]["run_attempt"], 3)
         self.assertEqual(report["premium_requests"], 35)
 
+    @unittest.expectedFailure
+    def test_forged_fields_stay_inside_their_cells(self) -> None:
+        """Newlines and pipes in any field cannot add rows or headings."""
+        results = self.root / "results" / "forged"
+        results.mkdir(parents=True)
+        forged = result_json(
+            repository="o/r|x\n## Injected heading",
+            issue="7\n| fake | row |",
+            verdict="proposed\n# Also injected",
+            pull_request_url="https://x/pull/1\n\n- list | item",
+        )
+        (results / "result.json").write_text(json.dumps(forged), encoding="utf-8")
+        md = self.root / "report.md"
+        reporting.run_report(
+            argparse.Namespace(
+                results=results.parent,
+                output_md=md,
+                output_json=self.root / "report.json",
+            )
+        )
+        lines = md.read_text(encoding="utf-8").splitlines()
+        rows = [line for line in lines if line.startswith("|")]
+        self.assertEqual(len(rows), 3, rows)
+        self.assertFalse(
+            [line for line in lines if line.startswith(("#", "- "))][1:], lines
+        )
+        self.assertEqual(rows[2].count(" | "), 4, rows[2])
+
     def test_report(self) -> None:
         """One row per result, an unreadable row and correct totals."""
         results = self.root / "results"

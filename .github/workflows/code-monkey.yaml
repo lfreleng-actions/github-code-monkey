@@ -890,6 +890,38 @@ jobs:
             --result artefacts/result.json --run-url "$RUN_URL" \
             --since "$SINCE"
 
+      # Every selected issue gets a row in the report. When an earlier
+      # step failed before apply wrote a result (the offline check, a
+      # token mint), record that as a typed publish failure.
+      - name: 'Ensure a result exists'
+        if: always()
+        env:
+          KEY: "${{ matrix.key }}"
+          REPOSITORY: "${{ matrix.repository }}"
+          ISSUE: "${{ matrix.number }}"
+          DRY_RUN: "${{ inputs.dry_run }}"
+          MODE: "${{ inputs.mode }}"
+          RUN_ATTEMPT: "${{ github.run_attempt }}"
+          CHECK_OUTCOME: "${{ steps.check.outcome }}"
+          APPLY_OUTCOME: "${{ steps.apply.outcome }}"
+        run: |
+          # shellcheck disable=SC2016  # jq variables, not shell expansions
+          if [ -s artefacts/result.json ]; then exit 0; fi
+          mkdir -p artefacts
+          reason="publish did not complete (offline check: $CHECK_OUTCOME,"
+          reason="$reason apply: $APPLY_OUTCOME)"
+          jq -n --arg key "$KEY" --arg repo "$REPOSITORY" \
+            --argjson issue "$ISSUE" --arg reason "$reason" \
+            --argjson dry "$DRY_RUN" --arg mode "$MODE" \
+            --argjson attempt "$RUN_ATTEMPT" '{
+              schema: 1, key: $key, repository: $repo, issue: $issue,
+              verdict: "publish-failed", reasons: [$reason], warnings: [],
+              dry_run: $dry, mode: $mode, run_attempt: $attempt,
+              branch_url: null, commits: [], pull_request_url: null,
+              comment_url: null, pr_title: null, premium_requests: null,
+              agent_seconds: null
+            }' > artefacts/result.json
+
       - name: 'Attach publish result'
         if: always()
         # yamllint disable-line rule:line-length

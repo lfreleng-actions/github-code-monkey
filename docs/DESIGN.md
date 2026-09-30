@@ -628,7 +628,10 @@ For each selected issue:
    creation, a time every attempt shares. A retry after a lost reply
    or a later failure then posts nothing twice, and a marker someone
    else pastes cannot suppress the comment.
-9. **Record** `result.json` and a step-summary section. A final
+9. **Record** `result.json` and a step-summary section. A step that
+   runs whatever came before writes a `publish-failed` result when an
+   earlier failure (the offline check, a token mint) left none, so
+   every selected issue reaches the report. A final
    report job gathers every `result.json` by artifact-name pattern
    and renders one table: issue, verdict, output URL, premium
    requests consumed (from `usage.json`), detail.

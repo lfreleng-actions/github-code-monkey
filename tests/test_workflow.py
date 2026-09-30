@@ -488,6 +488,17 @@ class PublishJobContracts(ReusableWorkflowCase):
         self.assertEqual(comment_with["permission-issues"], "write")
         self.assert_expression(comment_with["repositories"], "matrix.repo_name")
 
+    def test_every_entry_uploads_a_result(self) -> None:
+        """A failure before apply still leaves a typed result for the report."""
+        ensure = self.step("publish", "Ensure a result exists")
+        self.assertEqual(ensure["if"], "always()")
+        script = squash(str(ensure["run"]))
+        self.assertIn("if [ -s artefacts/result.json ]; then exit 0; fi", script)
+        self.assertIn('verdict: "publish-failed"', script)
+        steps = self.steps("publish")
+        upload = self.step("publish", "Attach publish result")
+        self.assertLess(steps.index(ensure), steps.index(upload))
+
     def test_writes_never_fall_back_to_the_native_token(self) -> None:
         """Branch, pull request and comment writes use App tokens alone."""
         apply = self.step("publish", "Publish branch and pull request")
